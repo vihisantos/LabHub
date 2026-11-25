@@ -131,9 +131,9 @@ vi.mock('../../core/workspaces/store', () => ({
 
 type Notif = { id: string; updatedAt?: string; title?: string; workspace_id?: string }
 
-const notifService = () => createSyncService<Notif>('notifications')
+const notifService = () => createSyncService<Notif>('stock_items')
 
-function tombstones(collection = 'notifications'): string[] {
+function tombstones(collection = 'stock_items'): string[] {
   try {
     const map = JSON.parse(localStorage.getItem('labhub_deleted_ids') || '{}')
     return (map[collection] as string[]) || []
@@ -144,7 +144,7 @@ function tombstones(collection = 'notifications'): string[] {
 
 const rls403 = {
   code: '42501',
-  message: 'new row violates row-level security policy for table "notifications"',
+  message: 'new row violates row-level security policy for table "stock_items"',
   details: '',
   hint: '',
 }
@@ -173,29 +173,29 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     harness.state.upsert = () => ({ data: null, error: rls403 })
 
     // 1º ciclo: a tentativa real acontece e FALHA como autorização (não é sucesso).
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ name: 'SyncError', kind: 'auth' })
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(harness.calls('notifications', 'upsert')).toHaveLength(1)
-    expect(getDirtyCollections()).toContain('notifications')
-    expect(getSyncBlockers().notifications).toMatchObject({ kind: 'auth', code: '42501' })
-    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'notifications', status: 'error' })
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ name: 'SyncError', kind: 'auth' })
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'upsert')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('stock_items')
+    expect(getSyncBlockers().stock_items).toMatchObject({ kind: 'auth', code: '42501' })
+    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'stock_items', status: 'error' })
 
     // 10 ciclos seguintes: NENHUMA nova requisição — o loop foi interrompido.
     for (let i = 0; i < 10; i++) {
-      await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'auth' })
+      await expect(syncSingle('stock_items')).rejects.toMatchObject({ kind: 'auth' })
     }
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(harness.calls('notifications', 'upsert')).toHaveLength(1)
-    expect(getDirtyCollections()).toContain('notifications')
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'upsert')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('stock_items')
 
     // Recuperação explícita após corrigir a permissão: volta a sincronizar
     // e limpa o estado — sem perder a operação pendente.
     harness.state.upsert = () => ({ data: null, error: null })
-    retrySyncCollection('notifications')
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
-    expect(harness.calls('notifications', 'upsert')).toHaveLength(2)
-    expect(getDirtyCollections()).not.toContain('notifications')
-    expect(getSyncBlockers().notifications).toBeUndefined()
+    retrySyncCollection('stock_items')
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
+    expect(harness.calls('stock_items', 'upsert')).toHaveLength(2)
+    expect(getDirtyCollections()).not.toContain('stock_items')
+    expect(getSyncBlockers().stock_items).toBeUndefined()
   })
 
   // 2. Um DELETE que retorna sucesso HTTP, mas não comprova a exclusão, não
@@ -214,28 +214,28 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     harness.state.remove = () => ({ data: [], error: null })
 
     // Ciclo 1: o pull/push conclui, mas o tombstone NÃO é descartado.
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
     expect(tombstones()).toContain(created.id)
     expect(svc.getById(created.id)).toBeUndefined() // exclusão local prevalece
 
     // Tentativas 2 e 3 ainda acontecem (controladas)…
-    await syncSingle('notifications')
-    await syncSingle('notifications')
-    expect(harness.calls('notifications', 'delete')).toHaveLength(3)
+    await syncSingle('stock_items')
+    await syncSingle('stock_items')
+    expect(harness.calls('stock_items', 'delete')).toHaveLength(3)
 
     // …a partir da 4ª não há novas requisições, mas o estado continua retido.
-    await syncSingle('notifications')
-    await syncSingle('notifications')
-    expect(harness.calls('notifications', 'delete')).toHaveLength(3)
+    await syncSingle('stock_items')
+    await syncSingle('stock_items')
+    expect(harness.calls('stock_items', 'delete')).toHaveLength(3)
     expect(tombstones()).toContain(created.id)
     expect(JSON.parse(localStorage.getItem('labhub_delete_attempts') || '{}')).toMatchObject({
-      notifications: { [created.id]: { attempts: 3, status: 'unverifiable' } },
+      stock_items: { [created.id]: { attempts: 3, status: 'unverifiable' } },
     })
 
     // Recuperação explícita libera nova tentativa sem apagar nada.
-    retrySyncCollection('notifications')
-    await syncSingle('notifications')
-    expect(harness.calls('notifications', 'delete')).toHaveLength(4)
+    retrySyncCollection('stock_items')
+    await syncSingle('stock_items')
+    expect(harness.calls('stock_items', 'delete')).toHaveLength(4)
   })
 
   // 3. Uma falha temporária permite nova tentativa controlada.
@@ -247,25 +247,25 @@ describe('P0.1 — loop de sincronização de notificações', () => {
       throw new TypeError('Failed to fetch')
     }
 
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ name: 'SyncError', kind: 'transient' })
-    expect(getDirtyCollections()).toContain('notifications') // não é sucesso
-    expect(getSyncBlockers().notifications).toBeUndefined() // não virou bloqueio permanente
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ name: 'SyncError', kind: 'transient' })
+    expect(getDirtyCollections()).toContain('stock_items') // não é sucesso
+    expect(getSyncBlockers().stock_items).toBeUndefined() // não virou bloqueio permanente
     expect(JSON.parse(localStorage.getItem('labhub_sync_retry') || '{}')).toMatchObject({
-      notifications: { attempts: 1 },
+      stock_items: { attempts: 1 },
     })
 
     // Imediatamente depois: sem nova requisição (backoff ativo).
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'transient' })
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ kind: 'transient' })
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
 
     // Após a janela de backoff: tenta de novo e, com a rede de volta, recupera.
     vi.setSystemTime(new Date(Date.now() + 31_000))
     harness.state.select = () => ({ data: [], error: null })
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
-    expect(harness.calls('notifications', 'select')).toHaveLength(2)
-    expect(getDirtyCollections()).not.toContain('notifications')
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
+    expect(harness.calls('stock_items', 'select')).toHaveLength(2)
+    expect(getDirtyCollections()).not.toContain('stock_items')
     expect(JSON.parse(localStorage.getItem('labhub_sync_retry') || '{}')).not.toHaveProperty(
-      'notifications',
+      'stock_items',
     )
   })
 
@@ -276,21 +276,21 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     harness.state.upsert = () => ({ data: null, error: rls403 })
 
     const first = await syncAll()
-    expect(first.failed).toContain('notifications')
+    expect(first.failed).toContain('stock_items')
     expect(first.failed).not.toContain('workspaces')
     expect(first.synced).toBeGreaterThan(0)
     expect(harness.calls('workspaces', 'select')).toHaveLength(1)
     expect(
-      vi.mocked(console.warn).mock.calls.some((c) => String(c[0]).includes('"notifications"')),
+      vi.mocked(console.warn).mock.calls.some((c) => String(c[0]).includes('"stock_items"')),
     ).toBe(true)
 
-    // Ciclo seguinte: 'notifications' é pulada sem requisições; as demais seguem.
+    // Ciclo seguinte: 'stock_items' é pulada sem requisições; as demais seguem.
     const second = await syncAll()
-    expect(second.failed).toContain('notifications')
+    expect(second.failed).toContain('stock_items')
     expect(second.synced).toBeGreaterThan(0)
     expect(harness.calls('workspaces', 'select')).toHaveLength(2)
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(harness.calls('notifications', 'upsert')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'upsert')).toHaveLength(1)
   })
 
   // 5. Operações pendentes não são perdidas ao ocorrer uma falha.
@@ -303,19 +303,19 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     harness.state.select = () => {
       throw new TypeError('Failed to fetch')
     }
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'transient' })
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ kind: 'transient' })
 
-    expect(getDirtyCollections()).toContain('notifications')
+    expect(getDirtyCollections()).toContain('stock_items')
     expect(tombstones()).toContain(gone.id)
     expect(svc.getById(keep.id)).toBeDefined()
 
     // Rede de volta: as pendências são concluídas (upsert do item + DELETE provado).
     vi.setSystemTime(new Date(Date.now() + 31_000))
     harness.state.select = () => ({ data: [], error: null })
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
-    expect(harness.calls('notifications', 'upsert').some((c) => c.row?.id === keep.id)).toBe(true)
-    expect(harness.calls('notifications', 'delete').some((c) => c.id === gone.id)).toBe(true)
-    expect(getDirtyCollections()).not.toContain('notifications')
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
+    expect(harness.calls('stock_items', 'upsert').some((c) => c.row?.id === keep.id)).toBe(true)
+    expect(harness.calls('stock_items', 'delete').some((c) => c.id === gone.id)).toBe(true)
+    expect(getDirtyCollections()).not.toContain('stock_items')
     expect(tombstones()).not.toContain(gone.id) // comprovado → limpo
   })
 
@@ -328,15 +328,15 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     // Exclusão COMPROVADA (RETURNING devolve a linha).
     harness.state.remove = () => ({ data: [{ id: removed.id }], error: null })
 
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
 
-    expect(getDirtyCollections()).not.toContain('notifications')
+    expect(getDirtyCollections()).not.toContain('stock_items')
     expect(tombstones()).not.toContain(removed.id)
     expect(JSON.parse(localStorage.getItem('labhub_delete_attempts') || '{}')).not.toHaveProperty(
-      'notifications',
+      'stock_items',
     )
-    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'notifications', status: 'ok' })
-    expect(getSyncBlockers().notifications).toBeUndefined()
+    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'stock_items', status: 'ok' })
+    expect(getSyncBlockers().stock_items).toBeUndefined()
     expect(svc.getById(stay.id)).toBeDefined()
   })
 
@@ -346,19 +346,19 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     svc.create({ updatedAt: new Date().toISOString(), title: 'única' })
 
     const results = await Promise.allSettled([
-      syncSingle('notifications'),
-      syncSingle('notifications'),
-      syncSingle('notifications'),
+      syncSingle('stock_items'),
+      syncSingle('stock_items'),
+      syncSingle('stock_items'),
       syncSingle('workspaces'),
     ])
     expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled', 'fulfilled'])
 
     // 3 chamadas da MESMA coleção → 1 execução (single-flight).
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(harness.calls('notifications', 'upsert')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(harness.calls('stock_items', 'upsert')).toHaveLength(1)
     // Coleções distintas continuam independentes.
     expect(harness.calls('workspaces', 'select')).toHaveLength(1)
-    expect(getDirtyCollections()).not.toContain('notifications')
+    expect(getDirtyCollections()).not.toContain('stock_items')
   })
 
   // 8. O isolamento por workspace e as regras de autorização não são enfraquecidos.
@@ -375,7 +375,7 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     const created = svc.create({ updatedAt: new Date().toISOString() })
     expect(created.workspace_id).toBe('ws-test') // stamping do workspace ativo intacto
 
-    setCol('notifications', [
+    setCol('stock_items', [
       { id: 'mine', workspace_id: 'ws-test' },
       { id: 'other', workspace_id: 'ws-other' },
       { id: 'global' },
@@ -383,21 +383,21 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     // O filtro de workspace segue valendo para leitura…
     expect(svc.getAll().map((n) => n.id).sort()).toEqual(['global', 'mine'])
     // …e nada é apagado do cache por causa do filtro.
-    expect(getCol<Notif>('notifications').map((n) => n.id).sort()).toEqual(['global', 'mine', 'other'])
+    expect(getCol<Notif>('stock_items').map((n) => n.id).sort()).toEqual(['global', 'mine', 'other'])
 
     // Sincronização com 403: falha, preserva dados e mantém o filtro aplicado.
     harness.state.upsert = () => ({ data: null, error: rls403 })
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'auth' })
-    expect(getSyncBlockers().notifications).toMatchObject({ kind: 'auth' })
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ kind: 'auth' })
+    expect(getSyncBlockers().stock_items).toMatchObject({ kind: 'auth' })
     expect(svc.getAll().map((n) => n.id).sort()).toEqual(['global', 'mine'])
-    expect(getCol('notifications')).toHaveLength(3)
-    expect(getDirtyCollections()).toContain('notifications')
+    expect(getCol('stock_items')).toHaveLength(3)
+    expect(getDirtyCollections()).toContain('stock_items')
 
     // Nenhuma permissão foi ampliada: a única via de recuperação é explícita.
-    retrySyncCollection('notifications')
-    expect(getSyncBlockers().notifications).toBeUndefined()
-    expect(getCol('notifications')).toHaveLength(3)
-    expect(getDirtyCollections()).toContain('notifications')
+    retrySyncCollection('stock_items')
+    expect(getSyncBlockers().stock_items).toBeUndefined()
+    expect(getCol('stock_items')).toHaveLength(3)
+    expect(getDirtyCollections()).toContain('stock_items')
   })
 
   // 9. Erro 406 (schema inválido) bloqueia a coleção e não entra em loop.
@@ -416,26 +416,26 @@ describe('P0.1 — loop de sincronização de notificações', () => {
     }
 
     // 1º ciclo: a tentativa real acontece e FALHA como erro de configuração (auth).
-    await expect(syncSingle('notifications')).rejects.toMatchObject({ name: 'SyncError', kind: 'auth' })
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(getDirtyCollections()).toContain('notifications')
-    expect(getSyncBlockers().notifications).toMatchObject({ kind: 'auth', code: 'PGRST106' })
-    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'notifications', status: 'error' })
+    await expect(syncSingle('stock_items')).rejects.toMatchObject({ name: 'SyncError', kind: 'auth' })
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('stock_items')
+    expect(getSyncBlockers().stock_items).toMatchObject({ kind: 'auth', code: 'PGRST106' })
+    expect(getSyncLog().at(-1)).toMatchObject({ collection: 'stock_items', status: 'error' })
 
     // 10 ciclos seguintes: NENHUMA nova requisição — o loop foi interrompido.
     for (let i = 0; i < 10; i++) {
-      await expect(syncSingle('notifications')).rejects.toMatchObject({ kind: 'auth' })
+      await expect(syncSingle('stock_items')).rejects.toMatchObject({ kind: 'auth' })
     }
-    expect(harness.calls('notifications', 'select')).toHaveLength(1)
-    expect(getDirtyCollections()).toContain('notifications')
+    expect(harness.calls('stock_items', 'select')).toHaveLength(1)
+    expect(getDirtyCollections()).toContain('stock_items')
 
     // Recuperação explícita após corrigir o schema: volta a sincronizar
     // e limpa o estado — sem perder a operação pendente.
     harness.state.select = () => ({ data: [], error: null })
-    retrySyncCollection('notifications')
-    await expect(syncSingle('notifications')).resolves.toBeUndefined()
-    expect(harness.calls('notifications', 'select')).toHaveLength(2)
-    expect(getDirtyCollections()).not.toContain('notifications')
-    expect(getSyncBlockers().notifications).toBeUndefined()
+    retrySyncCollection('stock_items')
+    await expect(syncSingle('stock_items')).resolves.toBeUndefined()
+    expect(harness.calls('stock_items', 'select')).toHaveLength(2)
+    expect(getDirtyCollections()).not.toContain('stock_items')
+    expect(getSyncBlockers().stock_items).toBeUndefined()
   })
 })

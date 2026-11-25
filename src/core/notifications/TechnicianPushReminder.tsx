@@ -1,3 +1,4 @@
+import { useSuppressStartupPrompts } from '../../platform/Onboarding/onboardingState'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useActiveWorkspaceRole } from '../permissions/useActiveWorkspaceRole'
@@ -46,6 +47,7 @@ function browserSettingsUrl(): string {
  * no workspace selecionado. A confirmação é por dispositivo e usuário.
  */
 export function TechnicianPushReminder() {
+  const suppressStartupPrompts = useSuppressStartupPrompts()
   const { user } = useAuth()
   const { isTechnician, loading: roleLoading } = useActiveWorkspaceRole()
   const pushUser = useMemo(() => (user ? buildPushUser(user) : null), [user])
@@ -83,6 +85,7 @@ export function TechnicianPushReminder() {
   }, [snoozedUntil])
 
   if (
+    suppressStartupPrompts ||
     !user ||
     !isTechnician ||
     roleLoading ||

@@ -230,3 +230,17 @@ def test_chamados_event_id_is_stable_for_same_ticket_revision(worker_api_module)
     second = worker_api_module._chamados_event_id("created", ticket)
     assert first == second
     assert first.startswith("chamados:")
+
+
+def test_outbox_legacy_events_require_fresh_recipient_resolution(worker_api_module, monkeypatch):
+    target = Mock(side_effect=RuntimeError("subscriptions unavailable"))
+    monkeypatch.setattr(worker_api_module, "_target_subs", target)
+    send = Mock()
+    monkeypatch.setattr(worker_api_module, "_push_notify_subs_dedup", send)
+    with pytest.raises(RuntimeError, match="subscriptions unavailable"):
+        worker_api_module._deliver_outbox_notification("legacy", {
+            "module": "chamados", "context": "chamados-assigned",
+            "workspace_id": "ws-a", "target_user_id": "tech-a",
+        })
+    assert target.call_args.kwargs["strict"] is True
+    send.assert_not_called()

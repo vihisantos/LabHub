@@ -78,7 +78,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const assigned = selectAssignedWorkspaces(all, user)
 
-    if (user?.status === 'pending') {
+    if (user && user.status !== 'active') {
       // Firewall Etapa 7: usuário ainda aguardando aprovação NUNCA chega ao
       // gate de seleção de workspace (a tela de espera é renderizada pelo
       // AuthGuard no App). workspace_ids vazio + filtro estrito já dariam o
@@ -199,7 +199,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // unidade — o workspace segue como contexto opcional dentro do /admin.
   const isAdminArea = location.pathname.startsWith('/admin')
 
-  if (pendingSelection && !loading && !isPublicChamados && !isAdminArea) {
+  const isAuthArea = /^\/(login|approval-pending)\/?$/i.test(location.pathname)
+
+  if (user?.status === 'active' && pendingSelection && !loading && !isPublicChamados && !isAdminArea && !isAuthArea) {
     return (
       <WorkspaceContext.Provider value={value}>
         <WorkspaceGate

@@ -27,7 +27,10 @@ export function DashboardView() {
 
   useEffect(() => {
     let mounted = true
+    let inFlight = false
     const fetchAll = async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         const [res, rows] = await Promise.all([
           fetchReservas(workspace?.slug).catch(() => ({ lab1_reservas: [], lab2_reservas: [], reservas_semana: [] })),
@@ -42,11 +45,21 @@ export function DashboardView() {
         setTabletsLoaded(true)
       } catch {
         if (mounted) setTabletsLoaded(true)
+      } finally {
+        inFlight = false
       }
     }
-    fetchAll()
-    const interval = setInterval(fetchAll, 15000)
-    return () => { mounted = false; clearInterval(interval) }
+    void fetchAll()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void fetchAll()
+    }
+    const interval = setInterval(onVisible, 15000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      mounted = false
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
     // Re-busca quando o workspace (campus) muda — antes a closure ficava com o valor antigo
   }, [workspace?.slug, workspace?.id])
 

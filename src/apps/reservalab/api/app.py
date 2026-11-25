@@ -1,9 +1,10 @@
 import time
+from functools import wraps
 import json
 import hmac
 from flask import Flask, jsonify, request, g
 from openpyxl import load_workbook
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, timedelta, datetime, timezone, time as datetime_time
 from flask_cors import CORS
 import os
 import sys
@@ -15,6 +16,7 @@ import secrets
 import uuid
 import ipaddress
 import socket
+import tempfile
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse, urljoin
 from io import BytesIO
@@ -25,6 +27,7 @@ from pywebpush import webpush, WebPushException
 sys.path.insert(0, os.path.dirname(__file__))
 from auth import (
     require_auth,
+    require_workspace,
     require_module as require_module_auth,
     require_cron,
     require_admin,
@@ -39,6 +42,7 @@ from auth import (
 )
 from rbac import require_action as require_action_rbac
 from upstash_redis import create_redis_client
+from notification_tick import periodic_producers_enabled
 
 # Detecta caminho correto quando rodando de exe
 if getattr(sys, 'frozen', False):
@@ -87,9 +91,18 @@ for h in logger.handlers:
 
 CACHE_TTL = 60  # segundos
 
+def _excel_time_to_text(value):
+    """Normaliza horário nativo do openpyxl sem descartar segundos informados."""
+    if value.second or value.microsecond:
+        return value.isoformat()
+    return value.isoformat(timespec='minutes')
+
+
 class DateEncoder(json.JSONEncoder):
-    """Serializa objetos date/datetime para string ISO automaticamente."""
+    """Serializa datas e horários nativos de células Excel."""
     def default(self, obj):
+        if isinstance(obj, datetime_time):
+            return _excel_time_to_text(obj)
         if isinstance(obj, (date, datetime)):
             return obj.strftime('%d/%m/%Y')
         return super().default(obj)
@@ -145,18 +158,40 @@ def get_cached_reservas(cache_key):
 
 
 def set_cached_reservas(cache_key, data):
-    """Grava o cache por chave (Redis + arquivo local para resiliência)."""
+    """Grava JSON válido no Redis e substitui o arquivo de forma atômica."""
     payload = {'data': data, 'timestamp': time.time()}
+    # Serializar ANTES de escrever evita sobrescrever o cache com JSON parcial.
+    try:
+        serialized = json.dumps(payload, cls=DateEncoder)
+    except (TypeError, ValueError) as exc:
+        logger.error("Erro ao serializar cache de reservas: %s", exc)
+        return
     if redis:
         try:
-            redis.set(f'cache:{cache_key}', json.dumps(payload, cls=DateEncoder), ex=CACHE_TTL)
+            redis.set(f'cache:{cache_key}', serialized, ex=CACHE_TTL)
         except Exception as e:
             logger.error(f"Erro ao salvar cache Redis: {e}")
+
+    temp_path = None
     try:
-        with open(_cache_path(cache_key), 'w', encoding='utf-8') as f:
-            json.dump(payload, f, cls=DateEncoder)
+        cache_path = _cache_path(cache_key)
+        # Mesmo diretório: os.replace() é atômico e não expõe escrita incompleta.
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8', dir=os.path.dirname(cache_path),
+            prefix='.cache_', suffix='.tmp', delete=False,
+        ) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(serialized)
+        os.replace(temp_path, cache_path)
+        temp_path = None
     except Exception as e:
-        logger.error(f"Erro ao salvar cache em arquivo: {e}")
+        logger.error("Erro ao salvar cache em arquivo: %s", e)
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
 app = Flask(__name__)
 CORS(app)
@@ -724,25 +759,30 @@ def _notify_super_admin_spreadsheet_link(workspace_slug, access_error):
         logger.error('Falha ao persistir alerta de link do ReservaLab')
 
 
-def _parse_spreadsheet(spreadsheet_url, lab_count=2):
+def _parse_spreadsheet(spreadsheet_url, lab_count=2, *, strict=False):
     """Baixa e parseia uma planilha Excel, retornando (reservas_hoje, reservas_semana)."""
+    wb = None
     reservas_hoje = []
     reservas_semana = []
     status_key = _spreadsheet_status_key(spreadsheet_url)
     _SPREADSHEET_LINK_SUCCESSES.discard(status_key)
     if not spreadsheet_url:
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     # Só a representação segura: a URL original pode carregar token de
     # compartilhamento, e este log é sobre a RECUSA, não sobre a credencial.
     origem = _safe_url_for_log(spreadsheet_url)
     if not _ext_validate_source_url(spreadsheet_url, SPREADSHEET_MAX_URL_LEN):
         logger.error("URL da planilha rejeitada (proteção SSRF): %s", origem)
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     logger.info("Baixando planilha de %s", origem)
     content, fetch_error = _ext_fetch_source_bytes(
         spreadsheet_url,
         max_bytes=SPREADSHEET_MAX_BYTES,
-        timeout=SPREADSHEET_TIMEOUT,
+        timeout=(4, 6) if strict else SPREADSHEET_TIMEOUT,
         max_redirects=SPREADSHEET_MAX_REDIRECTS,
     )
     if fetch_error:
@@ -752,6 +792,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
         if _is_spreadsheet_link_access_error(fetch_error):
             status_match = re.search(r'HTTP (401|403|404)\b', str(fetch_error))
             _SPREADSHEET_LINK_ERRORS[status_key] = f'HTTP {status_match.group(1)}'
+        if strict:
+            raise RuntimeError('reservation spreadsheet unavailable or invalid')
         return reservas_hoje, reservas_semana
     # Daqui para baixo é o parser de antes, byte a byte: o `try` externo continua
     # sendo a rede de segurança do laço de linhas.
@@ -769,6 +811,8 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     )
                 else:
                     _SPREADSHEET_LINK_ERRORS.pop(status_key, None)
+                if strict:
+                    raise RuntimeError('reservation spreadsheet unavailable or invalid')
                 return reservas_hoje, reservas_semana
             wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
             logger.info("Planilha carregada!")
@@ -776,11 +820,15 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
             _SPREADSHEET_LINK_SUCCESSES.add(status_key)
         except Exception as e:
             logger.error(f"Erro ao carregar planilha: {e}")
+            if strict:
+                raise RuntimeError('reservation spreadsheet unavailable or invalid')
             return reservas_hoje, reservas_semana
         try:
             ws = wb['RESERVA LAB. INFORMÁTICA']
         except KeyError:
             logger.error("Aba 'RESERVA LAB. INFORMÁTICA' não encontrada")
+            if strict:
+                raise RuntimeError('reservation spreadsheet unavailable or invalid')
             return reservas_hoje, reservas_semana
         hoje = get_today_sp()
         # Janela do calendário exibido no app: próximos 30 dias (antes eram 7).
@@ -792,6 +840,10 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                 email = row[2]
                 data_reserva = row[3]
                 horario = row[4]
+                # openpyxl entrega células formatadas como hora em datetime.time;
+                # manter o objeto na resposta causava HTTP 500 ao montar o JSON.
+                if isinstance(horario, datetime_time):
+                    horario = _excel_time_to_text(horario)
                 alunos = row[5]
                 obs = row[6]
                 lab = row[8]
@@ -841,9 +893,16 @@ def _parse_spreadsheet(spreadsheet_url, lab_count=2):
                     reservas_semana.append(reserva)
             except Exception as e:
                 logger.warning(f"Erro processando linha: {e}")
+                if strict:
+                    raise RuntimeError('reservation spreadsheet row invalid') from e
                 continue
     except Exception as e:
         logger.error(f"Erro ao processar planilha: {e}")
+        if strict:
+            raise RuntimeError('reservation spreadsheet parse failed') from e
+    finally:
+        if wb is not None:
+            wb.close()
     return reservas_hoje, reservas_semana
 
 _UNSET = object()
@@ -1141,15 +1200,26 @@ def push_test_device():
         if not subscription:
             return jsonify({'error': 'Inscrição deste dispositivo não encontrada. Ative as notificações novamente.'}), 404
 
-        sent = push_notify(
+        outcome = _push_outcome(push_notify(
             subscription,
             'Teste de notificações do LabHub',
             'Se esta mensagem apareceu, o Push chegou a este dispositivo.',
             url='/chamados/settings',
-        )
-        if not sent:
-            return jsonify({'error': 'O servidor não conseguiu enviar o Push. Verifique a configuração VAPID e a inscrição.'}), 502
-        return jsonify({'sent': True})
+        ))
+        if outcome == PUSH_REJECTED:
+            return jsonify({
+                'sent': False,
+                'status': 'rejected',
+                'error': 'O serviço Push rejeitou a inscrição deste dispositivo. Reative as notificações.',
+            }), 502
+        if outcome != PUSH_ACCEPTED:
+            return jsonify({
+                'sent': False,
+                'status': 'unknown',
+                'error': 'O servidor não conseguiu confirmar a aceitação do Push. Confira o dispositivo antes de repetir.',
+            }), 503
+        # HTTP 2xx do provedor = aceito para entrega, NÃO exibido no dispositivo.
+        return jsonify({'sent': True, 'status': 'accepted'})
     except Exception as e:
         logger.error('Push device test error: %s', e)
         return jsonify({'error': 'Não foi possível testar as notificações'}), 500
@@ -1580,7 +1650,8 @@ def _push_notify_subs_dedup(subs, event_id, ttl, title, body, url='/', actions=N
 def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
-    context=None, actions=None,
+    context=None, actions=None, expires_at=None, reservation_id=None, persist_inapp=False,
+    exclude_user_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1599,6 +1670,14 @@ def _queue_push_event(
         'context': context or module or 'app-notification',
         'actions': actions if isinstance(actions, list) else None,
     }
+    if exclude_user_id:
+        payload['exclude_user_id'] = str(exclude_user_id)
+    if expires_at is not None:
+        payload['expires_at'] = expires_at
+    if reservation_id is not None:
+        payload['reservation_id'] = str(reservation_id)
+    if persist_inapp:
+        payload['persist_inapp'] = True
     try:
         inserted = pg_store.store.notification_outbox_enqueue(
             str(event_id), None, payload,
@@ -1746,6 +1825,9 @@ _MODULE_PUSH_ACTIONS = {
             'ticket.edit', 'ticket.status', 'ticket.assign', 'ticket.comment',
             'ticket.close', 'ticket.reopen', 'ticket.delete', 'ticket.qr',
         }),
+        # Apenas quem pode ASSUMIR chamados deve receber alertas de
+        # novo chamado e cobranças por falta de técnico.
+        'claim': frozenset({'ticket.claim'}),
     },
     'reservalab': {
         'full': frozenset({'reservelab.tablet.reserve', 'reservelab.tablet.cancel'}),
@@ -1773,7 +1855,7 @@ _MODULE_PUSH_ACTIONS = {
 }
 
 
-def _resolve_batch_rbac(subs):
+def _resolve_batch_rbac(subs, *, strict=False):
     """Memberships ativas com papel por usuário: {uid: {ws: {'membership_id', 'role_id'}}}.
 
     Mesma guarda de UUID do batch de workspaces (`_resolve_batch_memberships`):
@@ -1808,9 +1890,14 @@ def _resolve_batch_rbac(subs):
             timeout=10,
         )
         if not resp.ok:
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
             return {}
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             uid, ws = r.get('profile_id'), r.get('workspace_id')
             if uid and ws:
                 entry = out.setdefault(str(uid), {}).setdefault(str(ws), {})
@@ -1818,10 +1905,12 @@ def _resolve_batch_rbac(subs):
                 entry['role_id'] = r.get('role_id')
         return out
     except Exception:
+        if strict:
+            raise
         return {}
 
 
-def _resolve_batch_role_permissions(role_ids):
+def _resolve_batch_role_permissions(role_ids, *, strict=False):
     """Actions por role (escopo 'workspace' apenas): {role_id: {action}}.
 
     Falha/impossível ⇒ {} (fail-closed). Ações de outro escopo (global/self)
@@ -1842,9 +1931,14 @@ def _resolve_batch_role_permissions(role_ids):
             timeout=10,
         )
         if not resp.ok:
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
             return {}
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             if str(r.get('scope') or 'workspace') != 'workspace':
                 continue
             action = str(r.get('action') or '').strip()
@@ -1852,13 +1946,15 @@ def _resolve_batch_role_permissions(role_ids):
                 out.setdefault(str(r.get('role_id')), set()).add(action)
         return out
     except Exception:
+        if strict:
+            raise
         return {}
 
 
-def _resolve_batch_overrides(membership_ids):
+def _resolve_batch_overrides(membership_ids, *, strict=False):
     """Overrides por membership: {membership_id: {action: 'allow'|'deny'}}.
 
-    Falha ⇒ {} (fail-closed) — na ausência de override o papel base decide.
+    Falha ⇒ None (não confundir falha com ausência de override).
     """
     membership_ids = sorted({str(m) for m in (membership_ids or []) if m})
     if not membership_ids or not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
@@ -1875,14 +1971,21 @@ def _resolve_batch_overrides(membership_ids):
             timeout=10,
         )
         if not resp.ok:
-            return {}
+            if strict:
+                raise RuntimeError('push RBAC lookup failed')
+            return None
+        rows = resp.json()
+        if not isinstance(rows, list) or (strict and len(rows) >= 1000):
+            raise RuntimeError('push RBAC response invalid or incomplete')
         out = {}
-        for r in (resp.json() or []):
+        for r in rows:
             if r.get('effect') in ('allow', 'deny') and r.get('action'):
                 out.setdefault(str(r.get('membership_id')), {})[str(r['action'])] = r['effect']
         return out
     except Exception:
-        return {}
+        if strict:
+            raise
+        return None
 
 
 def _module_action_ok(u, module, min_level, rbac_members, role_actions, overrides, workspace_id=None):
@@ -1893,7 +1996,10 @@ def _module_action_ok(u, module, min_level, rbac_members, role_actions, override
     - com workspace_id, a Action é exigida NAQUELE workspace; sem workspace_id,
       qualquer membership ativa do usuário conta.
     """
-    if u.get('is_super_admin'):
+    # Alertas de chamado sem responsável são destinados a quem tem a Action
+    # ticket.claim no campus, não a administradores só pelo bypass global.
+    # O bypass do super admin permanece intacto nos outros canais/módulos.
+    if u.get('is_super_admin') and not (module == 'chamados' and min_level == 'claim'):
         return True
     criteria = _MODULE_PUSH_ACTIONS.get(module)
     actions = (criteria or {}).get(min_level) if criteria else None
@@ -1924,7 +2030,7 @@ def _module_action_ok(u, module, min_level, rbac_members, role_actions, override
     return False
 
 
-def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None):
+def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min_level=None, strict=False):
     """Filtra os subscribers pela segmentação de notificações (RBAC2).
 
     - módulo: destinatário precisa de membership ATIVA + Action do módulo
@@ -1937,23 +2043,56 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
     - user_id/role: filtros operacionais preservados (destinatário direto).
     - notify_settings: mudo global e canal `push` por app são respeitados.
     """
-    subs = _get_subs()
+    # Alertas operacionais de chamados (abertura, cobrança, assunção e
+    # atribuição) nunca atravessam campi, inclusive para super admins.
+    # Avisos pessoais ao professor continuam fora desta regra.
+    if module == 'chamados' and min_level in ('claim', 'full') and not workspace_id:
+        return []
+    subs = _get_subs(strict=True) if strict else _get_subs()
+    if strict:
+        if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+            raise RuntimeError('push profile store unavailable')
+        # Subscription snapshots are not authoritative for status, admin or preferences.
+        ids = sorted({str((sub.get('user') or {}).get('id') or '') for sub in subs})
+        ids = [uid for uid in ids if _is_valid_uuid(uid)]
+        profiles = {}
+        for offset in range(0, len(ids), 100):
+            batch = ids[offset:offset + 100]
+            response = requests.get(
+                f'{_SUPABASE_URL}/rest/v1/profiles',
+                params={'id': 'in.(' + ','.join(batch) + ')', 'status': 'eq.active',
+                        'select': 'id,status,is_super_admin,notify_settings'},
+                headers=_supabase_headers(), timeout=6,
+            )
+            if not response.ok:
+                raise RuntimeError('push profile lookup failed')
+            rows = response.json()
+            if not isinstance(rows, list):
+                raise RuntimeError('invalid push profiles')
+            profiles.update({str(row['id']): row for row in rows if row.get('status') == 'active'})
+        subs = [{**sub, 'user': {**(sub.get('user') or {}), **profiles[str(sub['user']['id'])]}}
+                for sub in subs if str((sub.get('user') or {}).get('id') or '') in profiles]
     needs_rbac = bool(module)
     if needs_rbac:
-        rbac_members = _resolve_batch_rbac(subs)
+        rbac_members = _resolve_batch_rbac(subs, strict=True) if strict else _resolve_batch_rbac(subs)
         role_ids = {
             m.get('role_id') for ws in rbac_members.values()
             for m in ws.values() if m.get('role_id')
         }
-        role_actions = _resolve_batch_role_permissions(role_ids)
+        role_actions = _resolve_batch_role_permissions(role_ids, strict=True) if strict else _resolve_batch_role_permissions(role_ids)
         membership_ids = {
             m.get('membership_id') for ws in rbac_members.values()
             for m in ws.values() if m.get('membership_id')
         }
-        overrides = _resolve_batch_overrides(membership_ids)
+        overrides = _resolve_batch_overrides(membership_ids, strict=True) if strict else _resolve_batch_overrides(membership_ids)
+        if overrides is None:
+            raise RuntimeError('push membership overrides unavailable')
         member_ws = {uid: set(ws_map.keys()) for uid, ws_map in rbac_members.items()}
     elif workspace_id:
-        member_ws = _resolve_batch_memberships(subs)
+        if strict:
+            member_ws = {uid: set(ws_map) for uid, ws_map in _resolve_batch_rbac(subs, strict=True).items()}
+        else:
+            member_ws = _resolve_batch_memberships(subs)
         rbac_members, role_actions, overrides = {}, {}, {}
     else:
         rbac_members, role_actions, overrides = {}, {}, {}
@@ -1975,7 +2114,8 @@ def _target_subs(module=None, workspace_id=None, user_id=None, role=None, *, min
             if ch is not None and not ch.get('push', True):
                 continue
         if workspace_id:
-            if not u.get('is_super_admin') and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
+            must_be_member = (module == 'chamados' and min_level in ('claim', 'full'))
+            if (must_be_member or not u.get('is_super_admin')) and workspace_id not in member_ws.get(str(u.get('id') or ''), set()):
                 continue
         out.append(s)
     return out
@@ -2248,6 +2388,8 @@ def push_action():
 @require_cron
 def push_check():
     """Check de reservas próximas (janela configurável, default 30 min). Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -2299,12 +2441,14 @@ def _workspaces_with_spreadsheet():
     return []
 
 
-def _internal_push_check():
+def _internal_push_check(*, strict_scope=False):
     """Core logic for push check — reservas + tablets. Returns dict."""
     if not _push_store_ready():
         return {'error': 'Push store not configured'}
     try:
         today = get_today_sp()
+        window_start = get_now_sp()
+        window_end = window_start + timedelta(minutes=_push_advance_minutes())
 
         # Reserva de lab: a planilha é POR CAMPUS. Quando há workspaces com
         # planilha própria, agrega as reservas de hoje de cada campus. O
@@ -2312,22 +2456,43 @@ def _internal_push_check():
         # Sem nenhum workspace
         # configurado, mantém o fallback legado da planilha global.
         reservas_hoje = []
+        errors = 0
         _lab_workspaces = _workspaces_with_spreadsheet()
         if _lab_workspaces:
-            for _ws in _lab_workspaces:
-                try:
-                    _lab_count = _get_workspace_lab_count(_ws['slug'])
-                    _reservas_ws, _ = get_reservas(
-                        _ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count,
-                    )
-                except Exception as e:
-                    logger.error("Push check: falha ao ler planilha do campus %s: %s", _ws.get('slug'), e)
-                    continue
-                for _r in _reservas_ws:
-                    _r['_scope'] = _ws['id']
-                reservas_hoje.extend(_reservas_ws)
-        else:
+            def read_campus(_ws):
+                _lab_count = _get_workspace_lab_count(_ws['slug'])
+                if strict_scope:
+                    current, upcoming = _parse_spreadsheet(_ws['spreadsheet_url'], lab_count=_lab_count, strict=True)
+                    if window_end.date() != today:
+                        current = [*current, *upcoming]
+                else:
+                    current, _ = get_reservas(_ws['slug'], spreadsheet_url=_ws['spreadsheet_url'], lab_count=_lab_count)
+                return [{**r, '_scope': _ws['id']} for r in current]
+
+            if strict_scope:
+                # Independent source reads, bounded concurrency; do not let a
+                # single slow campus serialize all other campus downloads.
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(read_campus, ws): ws for ws in _lab_workspaces}
+                    for future in as_completed(futures):
+                        try:
+                            reservas_hoje.extend(future.result())
+                        except Exception as exc:
+                            errors += 1
+                            logger.warning("Push check: campus source failed: %s", type(exc).__name__)
+            else:
+                for ws in _lab_workspaces:
+                    try:
+                        reservas_hoje.extend(read_campus(ws))
+                    except Exception as exc:
+                        errors += 1
+                        logger.warning("Push check: campus source failed: %s", type(exc).__name__)
+        elif not strict_scope:
             reservas_hoje, _ = get_reservas()
+        else:
+            # A global fallback could disclose campus-specific reservation data.
+            errors += 1
 
         agora = get_now_sp()
         agora_min = agora.hour * 60 + agora.minute
@@ -2343,14 +2508,24 @@ def _internal_push_check():
                     data_reserva = datetime.strptime(data_reserva, '%d/%m/%Y').date()
                 except:
                     continue
-            if data_reserva != today:
+            if isinstance(data_reserva, datetime):
+                data_reserva = data_reserva.date()
+            if not isinstance(data_reserva, date):
+                continue
+            if not strict_scope and data_reserva != today:
                 continue
             
             inicio = parse_horario_inicio(r.get('horario', ''))
             if inicio is None:
                 continue
             
-            if agora_min <= inicio <= limite_min:
+            reservation_start = datetime.combine(data_reserva, datetime.min.time(), tzinfo=ZoneInfo('America/Sao_Paulo')) + timedelta(minutes=inicio)
+            eligible = (window_start < reservation_start <= window_end) if strict_scope else (agora_min <= inicio <= limite_min)
+            if eligible:
+                if strict_scope and not r.get('_scope'):
+                    errors += 1
+                    continue
+                expires_at = reservation_start.isoformat()
                 reserva_data_key = (
                     data_reserva.isoformat() if hasattr(data_reserva, 'isoformat')
                     else str(data_reserva)
@@ -2360,9 +2535,15 @@ def _internal_push_check():
                     f"{r['horario']}|{r.get('responsavel','')}".encode()
                 ).hexdigest()
 
+                if strict_scope:
+                    reservation_id = r.get('reservation_id')
+                    if not reservation_id:
+                        errors += 1
+                        continue
+                    notify_id = hashlib.md5(f"lab-reserva|{r['_scope']}|{reservation_id}".encode()).hexdigest()
                 title = f"{' '.join(r.get('labs', [r.get('lab', 'Lab')]))}"
                 alunos = r.get('alunos', '')
-                evento = r.get('observacao', '').strip()
+                evento = str(r.get('observacao') or '').strip()
                 body = f"{r['horario']} — {r.get('responsavel', 'Professor') or 'Sem professor'}"
                 if evento:
                     body += f" — {evento}"
@@ -2371,11 +2552,14 @@ def _internal_push_check():
                 
                 queue_status = _queue_push_event(
                     notify_id, title, body, module='reservalab',
-                    workspace_id=r.get('_scope') or None,
+                    workspace_id=r.get('_scope') or None, min_level='full',
                     ttl=_push_dedup_seconds(), context='lab-reserva',
+                    **({'expires_at': expires_at, 'reservation_id': reservation_id, 'persist_inapp': True} if strict_scope else {}),
                 )
                 if queue_status == 'queued':
                     queued += 1
+                elif queue_status is None and strict_scope:
+                    errors += 1
                 elif queue_status is None:
                     accepted, rejected, unknown, skipped, dedup_failed = _push_notify_subs_dedup(
                         _target_subs(
@@ -2399,12 +2583,17 @@ def _internal_push_check():
             try:
                 today_str = today.strftime('%Y-%m-%d')
                 tomorrow_str = (today + timedelta(days=1)).strftime('%Y-%m-%d')
+                if strict_scope:
+                    from_ts = window_start.isoformat()
+                    to_ts = window_end.isoformat()
+                else:
+                    from_ts, to_ts = today_str + 'T00:00:00Z', tomorrow_str + 'T00:00:00Z'
                 tablet_url = (
                     f"{supabase_url}/rest/v1/tablet_reservations"
                     f"?select=*&order=horario_inicio.asc"
                     f"&status=eq.{quote('ativa')}"
-                    f"&horario_inicio=gte.{quote(today_str + 'T00:00:00Z')}"
-                    f"&horario_inicio=lt.{quote(tomorrow_str + 'T00:00:00Z')}"
+                    f"&horario_inicio=gte.{quote(from_ts)}"
+                    f"&horario_inicio={'lte' if strict_scope else 'lt'}.{quote(to_ts)}"
                 )
                 tablet_resp = requests.get(
                     tablet_url,
@@ -2431,11 +2620,16 @@ def _internal_push_check():
                         except:
                             continue
                         
-                        if agora_min <= inicio_min <= limite_min:
-                            notify_id = hashlib.md5(f"tablet|{t['id']}".encode()).hexdigest()
+                        eligible = (window_start < dt_sp <= window_end) if strict_scope else (dt_sp.date() == today and agora_min <= inicio_min <= limite_min)
+                        if eligible:
+                            key = f"tablet|{t['id']}"
+                            if strict_scope:
+                                # A genuinely rescheduled reservation is a new reminder.
+                                key += f"|{dt_sp.isoformat()}"
+                            notify_id = hashlib.md5(key.encode()).hexdigest()
 
                             title = f"Tablets — {t.get('sala', 'Sala')}"
-                            evento = t.get('finalidade', '').strip()
+                            evento = str(t.get('finalidade') or '').strip()
                             body = f"{t.get('professor', 'Professor')}"
                             if evento:
                                 body += f" — {evento}"
@@ -2445,13 +2639,19 @@ def _internal_push_check():
                             # (super admin vê todos; reserva sem workspace vai para todos).
                             # Só nível 'full' do reservalab recebe push de reserva.
                             ws_id = t.get('workspace_id')
+                            if strict_scope and not ws_id:
+                                errors += 1
+                                continue
                             queue_status = _queue_push_event(
                                 notify_id, title, body, module='reservalab',
-                                workspace_id=ws_id, ttl=_push_dedup_seconds(),
+                                workspace_id=ws_id, min_level='full', ttl=_push_dedup_seconds(),
                                 context='tablet',
+                                **({'expires_at': dt_sp.isoformat(), 'reservation_id': t['id'], 'persist_inapp': True} if strict_scope else {}),
                             )
                             if queue_status == 'queued':
                                 queued += 1
+                            elif queue_status is None and strict_scope:
+                                errors += 1
                             elif queue_status is None:
                                 target = _target_subs(
                                     module='reservalab', workspace_id=ws_id, min_level='full',
@@ -2467,22 +2667,32 @@ def _internal_push_check():
                                         "skipped=%s dedup_failed=%s",
                                         rejected, unknown, skipped, dedup_failed,
                                     )
+                elif strict_scope:
+                    errors += 1
             except Exception as e:
+                errors += 1
                 logger.error(f"Tablet push check error: {e}")
+        elif strict_scope:
+            errors += 1
         
-        return {'checked': True, 'queued': queued, 'sent': sent}
+        result = {'checked': True, 'queued': queued, 'sent': sent}
+        if strict_scope and errors:
+            result.update(error='reservation checks incomplete', failures=errors)
+        return result
     except Exception as e:
         logger.error("Push check error: %s", e)
         return {'error': 'Erro ao verificar push'}
 
 # ─── Notificações de Empréstimos (Stock) ─────────────────────────
 
-def _get_subs():
+def _get_subs(*, strict=False):
     """Lista as inscrições ativas. Falha de leitura não derruba o chamador."""
     try:
         raw = _active_push_store().push_subs_list()
     except Exception as e:
         logger.warning("[push] falha ao listar inscrições do store: %s", e)
+        if strict:
+            raise RuntimeError("push subscriptions unavailable") from e
         return []
     subs = []
     for item in raw:
@@ -2560,75 +2770,106 @@ def _get_key(obj, *keys):
     return None
 
 
+def _notify_stock_movement(event_type):
+    """Cria Push somente a partir de movimento de Estoque persistido e autorizado.
+
+    Nunca confia no título, no módulo ou no campus enviados pelo navegador.
+    O outbox é idempotente por movimento e não há fallback de envio direto.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'JSON inválido'}), 400
+    if body.get('module') not in (None, 'stock'):
+        return jsonify({'error': 'Módulo incompatível'}), 400
+    movement_id = str(body.get('movement_id') or body.get('movementId') or '').strip()
+    if not _is_valid_uuid(movement_id):
+        return jsonify({'error': 'movement_id obrigatório e válido'}), 400
+    # UUID canônico impede que caixa/forma textual crie outro ID de dedup.
+    movement_id = str(uuid.UUID(movement_id))
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return jsonify({'error': 'Banco indisponível'}), 503
+
+    try:
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/stock_movements',
+            params={
+                'select': '*',
+                'id': f'eq.{movement_id}',
+                'workspace_id': f'eq.{g.workspace_id}',
+                'limit': 1,
+            },
+            headers={**_supabase_headers(), 'Accept-Profile': 'stock'},
+            timeout=8,
+        )
+        if not response.ok:
+            logger.warning('[push-stock] falha na consulta de movimento: %s', response.status_code)
+            return jsonify({'error': 'Falha ao validar movimento'}), 503
+        rows = response.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida do banco'}), 503
+        if not rows:
+            return jsonify({'error': 'Movimento não encontrado neste campus'}), 404
+        movement = rows[0]
+        expected_type = 'emprestimo' if event_type == 'loan' else 'devolucao'
+        if (not isinstance(movement, dict)
+                or str(movement.get('workspace_id') or '') != str(g.workspace_id)
+                or movement.get('type') != expected_type
+                or movement.get('deletedAt')):
+            return jsonify({'error': 'Movimento incompatível ou removido'}), 409
+
+        item = str(movement.get('itemName') or 'Item')[:100]
+        if event_type == 'loan':
+            title = f'📦 Empréstimo: {item}'
+            msg = f"Emprestado para {str(movement.get('borrowedBy') or 'Alguém')[:100]}"
+            expected = str(movement.get('expectedReturnAt') or '')
+            if expected:
+                msg += f' — Devolução até {expected[:10]}'
+        else:
+            title = f'✅ Devolução: {item}'
+            msg = f"Devolvido por {str(movement.get('performedBy') or 'Alguém')[:100]}"
+
+        event_id = f'stock:{event_type}:{movement_id}'
+        status = _queue_push_event(
+            event_id, title, msg, module='stock', workspace_id=str(g.workspace_id),
+            url='/stock/loans', context=f'stock-{event_type}', ttl=86400,
+        )
+        if status not in ('queued', 'duplicate'):
+            return jsonify({'error': 'Falha ao registrar notificação'}), 503
+        return jsonify({'event_id': event_id, 'status': status}), 202
+    except Exception as exc:
+        logger.warning('[push-stock] falha ao validar/enfileirar movimento: %s', exc)
+        return jsonify({'error': 'Falha ao registrar notificação'}), 503
+
+
+def _require_active_stock_request(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        if (getattr(g, 'user', None) or {}).get('status') != 'active':
+            return jsonify({'error': 'Conta inativa'}), 403
+        if not isinstance(request.get_json(silent=True), dict):
+            return jsonify({'error': 'JSON inválido'}), 400
+        return fn(*args, **kwargs)
+    return wrapped
+
+
 @app.route('/api/push/notify-loan', methods=['POST'])
 @require_auth
+@_require_active_stock_request
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_loan():
-    """Notify stock subscribers about a loan. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        borrowed_by = body.get('borrowedBy', 'Alguém')
-        expected_return = body.get('expectedReturnAt', '')
-
-        title = f"📦 Empréstimo: {item_name}"
-        msg = f"Emprestado para {borrowed_by}"
-        if expected_return:
-            msg += f" — Devolução até {expected_return[:10]}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Loan notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-loan error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de empréstimo'}), 500
+    return _notify_stock_movement('loan')
 
 
 @app.route('/api/push/notify-return', methods=['POST'])
 @require_auth
+@_require_active_stock_request
+@require_workspace
 @require_module_auth('stock')
+@require_action_rbac('stock.movement.create', scope='workspace')
 def push_notify_return():
-    """Notify stock subscribers about a return. Auth required, stock module required."""
-    # Workspace validation: if workspace_id is provided, verify membership
-    if request.is_json:
-        body_json = request.get_json(silent=True) or {}
-        ws_id = body_json.get('workspace_id')
-        if ws_id and hasattr(g, 'user') and not _user_in_workspace(g.user, ws_id):
-            return jsonify({'error': 'Access denied to this workspace'}), 403
-    if not _push_store_ready():
-        return jsonify({'error': 'Push store not configured'}), 500
-    try:
-        body = request.get_json()
-        item_name = body.get('itemName', 'Item')
-        returned_by = body.get('returnedBy', 'Alguém')
-
-        title = f"✅ Devolução: {item_name}"
-        msg = f"Devolvido por {returned_by}"
-
-        subs = _target_subs(module=body.get('module') or 'stock', workspace_id=body.get('workspace_id'))
-        accepted, rejected, unknown = _push_notify_subs(subs, title, msg)
-
-        logger.info(
-            "Return notify: %s (accepted=%s rejected=%s unknown=%s)",
-            title, accepted, rejected, unknown,
-        )
-        return jsonify({'sent': accepted})
-    except Exception as e:
-        logger.error("notify-return error: %s", e)
-        return jsonify({'error': 'Erro ao processar notificação de devolução'}), 500
+    return _notify_stock_movement('return')
 
 
 def _ensure_stock_schema(supabase_url, supabase_key):
@@ -2648,6 +2889,8 @@ def _ensure_stock_schema(supabase_url, supabase_key):
 @require_cron
 def push_check_overdue():
     """Check de empréstimos com prazo próximo (12 h). Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check_overdue()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -2747,6 +2990,8 @@ def _internal_push_check_overdue():
 @require_cron
 def push_check_pcare():
     """Check de estoque baixo de peças e manutenções agendadas. Protegido por CRON_SECRET."""
+    if periodic_producers_enabled():
+        return jsonify({'checked': False, 'skipped': 'qstash_owns_periodic_producers'})
     result = _internal_push_check_pcare()
     if isinstance(result, dict) and 'error' in result:
         return jsonify(result), 500
@@ -2855,7 +3100,7 @@ def _internal_push_check_pcare():
         return {'error': 'Erro ao verificar manutenções do PC Care'}
 
 
-def _check_pending_users():
+def _check_pending_users(*, require_outbox=False):
     """Push para admins quando existem usuários aguardando aprovação."""
     if not _push_store_ready():
         return {'error': 'Push store not configured'}
@@ -2878,6 +3123,7 @@ def _check_pending_users():
         # admin é destinatário (sem dependência do snapshot `profile.role`).
         sent = 0
         queued = 0
+        errors = 0
         for u in pending:
             pending_week = get_today_sp().toordinal() // 7
             nid = hashlib.md5(
@@ -2891,6 +3137,34 @@ def _check_pending_users():
             # segurança uma ação crítica em segundo plano (o POST ficaria
             # também sem Authorization => 401). O click abre a fila de
             # pendentes: /admin/users?pending=<id> (AdminGuard + RLS).
+            if require_outbox:
+                # Persist both channels atomically. Stable weekly ID prevents
+                # duplicate bell entries and duplicate outbox events on retries.
+                if not pg_store.is_configured():
+                    errors += 1
+                    continue
+                notification = {
+                    'id': 'pending:' + nid,
+                    'title': title, 'body': body,
+                    'type': 'approval', 'severity': 'warning',
+                    'module': 'auth', 'audience': 'role',
+                    'target_super_admin': True,
+                    'action_url': f"/admin/users?pending={u.get('id')}",
+                }
+                payload = {
+                    'title': title, 'body': body,
+                    'module': 'auth', 'target_super_admin': True,
+                    'context': 'pending-user', 'ttl': 604800,
+                    'action_url': notification['action_url'],
+                }
+                try:
+                    if pg_store.store.notification_create_with_outbox(notification, payload):
+                        queued += 1
+                except Exception as exc:
+                    logger.warning('[notifications] approval atomic persistence failed: %s', type(exc).__name__)
+                    errors += 1
+                continue
+
             queue_status = _queue_push_event(
                 nid, title, body, module='auth', target_super_admin=True,
                 ttl=604800, url=f"/admin/users?pending={u.get('id')}",
@@ -2911,7 +3185,10 @@ def _check_pending_users():
                         "skipped=%s dedup_failed=%s",
                         (u.get('id') or '')[:8], rejected, unknown, skipped, dedup_failed,
                     )
-        return {'checked': True, 'found': len(pending), 'queued': queued, 'sent': sent}
+        result = {'checked': True, 'found': len(pending), 'queued': queued, 'sent': sent}
+        if errors:
+            result.update(error='approval enqueue failed', failures=errors)
+        return result
     except Exception as e:
         logger.error("check-pending error: %s", e)
         return {'error': 'Erro ao verificar usuários pendentes'}
@@ -3090,14 +3367,19 @@ def push_check_all():
     """
 
     results = {}
-    for name, fn in [
+    checks = [
         ('reservas', _internal_push_check),
         ('overdue', _internal_push_check_overdue),
         ('pcare', _internal_push_check_pcare),
         ('pendentes', _check_pending_users),
         ('validade', _check_stock_expiry),
         ('tablets_cleanup', _internal_tablets_cleanup),
-    ]:
+    ]
+    if periodic_producers_enabled():
+        for name, _ in checks[:-1]:
+            results[name] = {'checked': False, 'skipped': 'qstash_owns_periodic_producers'}
+        checks = checks[-1:]  # Preserve retention until its separate schedule is verified.
+    for name, fn in checks:
         try:
             out = fn()
             results[name] = out

@@ -602,6 +602,30 @@ def test_list_sem_limit_offset_preserva_contrato(client, fake_requests, monkeypa
     assert "Prefer" not in call["kwargs"].get("headers", {})
 
 
+@pytest.mark.parametrize("total,complete", [(1, True), (2, False), (None, False)])
+def test_operational_snapshot_attests_only_complete_queue(client, fake_requests, monkeypatch, total, complete):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    headers["X-LabHub-Queue-Snapshot"] = "1"
+    upstream_headers = {} if total is None else {"Content-Range": f"0-0/{total}"}
+    fake_requests.route("GET", "/rest/v1/chamados_tickets",
+                        FakeResponse([_make_ticket()], headers=upstream_headers))
+    response = client.get("/api/chamados", headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()["snapshotComplete"] is complete
+    call = fake_requests.calls_for("GET", "chamados_tickets")[0]
+    assert call["kwargs"]["headers"]["Prefer"] == "count=exact"
+
+
+def test_snapshot_flag_never_attests_filtered_queue(client, fake_requests, monkeypatch):
+    headers = _setup_auth(fake_requests, monkeypatch)
+    headers["X-LabHub-Queue-Snapshot"] = "1"
+    _route_list_tickets(fake_requests, [_make_ticket()])
+    response = client.get("/api/chamados?workspace_id=ws-a", headers=headers)
+    assert response.status_code == 200
+    assert "snapshotComplete" not in response.get_json()
+    assert "Prefer" not in fake_requests.calls_for("GET", "chamados_tickets")[0]["kwargs"]["headers"]
+
+
 def test_list_paginado_janela_20_com_metadados(client, fake_requests, monkeypatch):
     """`limit=20` → URL com `limit=.20`, sem `offset`, payload com pageSize/
     offset/hasMore/total (Content-Range)."""
@@ -1632,62 +1656,89 @@ def test_purge_sem_token_com_secret_retorna_401(client, api_module, monkeypatch)
     assert resp.status_code == 401
 
 
-def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_module, monkeypatch):
+def _purge_fixture(fake_requests, monkeypatch, api_module, *, status="fechado", shared=False):
     monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
     monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
-    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: url.startswith("https://res.cloudinary.com/"))
+    url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg"
+    second = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"
+    ticket = _make_ticket(status=status, archived=status == "fechado",
+                          closedAt="2026-06-20T12:00:00Z" if status == "fechado" else None,
+                          updatedAt="2026-06-20T12:00:00Z", photos=url)
+    events = [{"id": "ev-1", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
+               "photo_urls": json.dumps([url, second, "data:image/jpeg;base64,abc"])}]
+    tickets = [ticket]
+    if shared:
+        tickets.append({**ticket, "id": "active-ticket", "status": "aberto"})
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse(tickets))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse(events))
+    fake_requests.route("PATCH", "/rest/v1/chamados_tickets", FakeResponse([{"id": ticket["id"]}]))
+    fake_requests.route("PATCH", "/rest/v1/ticket_events", FakeResponse([{"id": "ev-1"}]))
+    return url, second
 
-    old_closed = _make_ticket(
-        status="fechado",
-        archived=True,
-        closedAt="2026-06-20T12:00:00Z",
-        photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg",
-    )
-    fake_requests.route(
-        "GET",
-        "status=eq.fechado&closedAt=lt.",
-        FakeResponse([old_closed]),
-    )
-    fake_requests.route(
-        "GET",
-        "/rest/v1/ticket_events?ticket_id=in.",
-        FakeResponse([
-            {
-                "id": "ev-1",
-                "photo_urls": '["https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/b.jpg"]',
-            },
-            {
-                "id": "ev-2",
-                "photo_urls": '"data:image/jpeg;base64,abc"',
-            },
-        ]),
-    )
 
-    resp = client.post(
-        "/api/chamados/photos/purge",
-        headers={"Authorization": "Bearer super-secret"},
-    )
-
+@pytest.mark.parametrize("status", ["fechado", "indeferido"])
+def test_purge_apaga_fotos_de_chamados_fechados(client, fake_requests, api_module, monkeypatch, status):
+    first, second = _purge_fixture(fake_requests, monkeypatch, api_module, status=status)
+    destroyed = []
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: destroyed.append(url) or True)
+    resp = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
     assert resp.status_code == 200
-    result = resp.get_json()
-    assert result["tickets_scanned"] == 1
-    assert result["tickets_cleared"] == 1
-    assert result["events_cleared"] == 1
-    assert result["photos_deleted"] == 2
-
-    ticket_patch = [c for c in fake_requests.calls_for("PATCH", "chamados_tickets") if "photos" in c["kwargs"]["json"]]
-    assert len(ticket_patch) == 1
-    assert ticket_patch[0]["kwargs"]["json"]["photos"] == ""
-
-    event_patches = fake_requests.calls_for("PATCH", "/rest/v1/ticket_events")
-    assert len(event_patches) == 1
-    assert json.loads(event_patches[0]["kwargs"]["json"]["photo_urls"]) == []
+    assert resp.get_json()["photos_deleted"] == 2
+    assert resp.get_json()["tickets_cleared"] == 1
+    assert resp.get_json()["events_cleared"] == 1
+    assert destroyed == [first, second]
+    assert fake_requests.calls_for("PATCH", "chamados_tickets")[0]["kwargs"]["json"] == {"photos": ""}
+    assert json.loads(fake_requests.calls_for("PATCH", "ticket_events")[0]["kwargs"]["json"]["photo_urls"]) == ["data:image/jpeg;base64,abc"]
 
 
-# --- Fase 4: eventos (historico/comentarios) + fotos Cloudinary ---
+def test_purge_partial_failure_keeps_failed_reference(client, fake_requests, api_module, monkeypatch):
+    first, second = _purge_fixture(fake_requests, monkeypatch, api_module)
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: url == first)
+    resp = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert resp.status_code == 503
+    assert resp.get_json()["failures"] == 1
+    assert json.loads(fake_requests.calls_for("PATCH", "ticket_events")[0]["kwargs"]["json"]["photo_urls"]) == [second, "data:image/jpeg;base64,abc"]
 
 
-# ── Fase 6: POST /api/chamados/push/test (teste de push do usuário logado) ──
+def test_purge_preserves_assets_referenced_by_active_ticket(client, fake_requests, api_module, monkeypatch):
+    first, second = _purge_fixture(fake_requests, monkeypatch, api_module, shared=True)
+    destroyed = []
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", lambda url: destroyed.append(url) or True)
+    resp = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert resp.status_code == 200
+    assert destroyed == [second]
+    assert not fake_requests.calls_for("PATCH", "chamados_tickets")
+
+
+def test_purge_dry_run_never_deletes_or_patches(client, fake_requests, api_module, monkeypatch):
+    _purge_fixture(fake_requests, monkeypatch, api_module)
+    def forbidden(url):
+        raise AssertionError("dry-run called destroy")
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", forbidden)
+    response = client.post("/api/chamados/photos/purge", json={"dry_run": True},
+                           headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 200
+    assert response.get_json()["eligible_assets"] == 2
+    assert not fake_requests.calls_for("PATCH", "/rest/v1/")
+
+
+def test_cloudinary_destroy_signed_and_retryable(api_module, fake_requests, monkeypatch):
+    monkeypatch.setattr(api_module, "requests", fake_requests)
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "fake-key")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "fake-secret")
+    fake_requests.route("POST", "/image/destroy", FakeResponse({"result": "not found"}))
+    assert api_module._cloudinary_destroy("https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg")
+    data = fake_requests.calls_for("POST", "/image/destroy")[0]["kwargs"]["data"]
+    assert data["invalidate"] == "true"
+    assert data["api_key"] == "fake-key"
+    signed = "&".join(f"{key}={data[key]}" for key in ("invalidate", "public_id", "timestamp"))
+    assert data["signature"] == hashlib.sha256((signed + "fake-secret").encode()).hexdigest()
+    assert not api_module._cloudinary_destroy("https://res.cloudinary.com/other/image/upload/v1/chamados/horytsxg.jpg")
+    assert api_module._cloudinary_public_id("https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/iphone.heic") == "chamados/iphone"
+    assert api_module._cloudinary_public_id("https://evil.example/res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg") is None
+    assert api_module._cloudinary_public_id("https://res.cloudinary.com.evil.example/horytsxg/image/upload/v1/chamados/a.jpg") is None
 
 
 def _push_test_fixture(api_module, monkeypatch):
@@ -2104,3 +2155,24 @@ def test_rate_limit_limpa_entradas_antigas(client, fake_requests, api_module):
     assert api_module._check_rate_limit(ip) is True
     api_module._rate_limit_store.clear()
 
+
+
+@pytest.mark.parametrize("malformed", ['{"unexpected":"value"}', 'broken-json', '["https://example.test/image.jpg", 123]'])
+def test_purge_ambiguous_reference_blocks_all_deletions(client, fake_requests, api_module, monkeypatch, malformed):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    ticket = _make_ticket(status="fechado", closedAt="2026-06-20T12:00:00Z",
+                          photos="https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/a.jpg")
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([ticket]))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([{
+        "id": "ev-1", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
+        "photo_urls": malformed,
+    }]))
+    destroy = Mock(return_value=True)
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
+    response = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 503
+    destroy.assert_not_called()
+    assert not fake_requests.calls_for("PATCH", "/rest/v1/")

@@ -87,37 +87,75 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
     pushUser,
   )
   const [testingPush, setTestingPush] = useState(false)
+  const [testingLocalPush, setTestingLocalPush] = useState(false)
   const [pushTestResult, setPushTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   const pushActive = subscribed && permission === 'granted'
+
+  async function currentPushRegistration() {
+    if (!('serviceWorker' in navigator)) {
+      throw new Error('Este navegador não oferece Service Worker.')
+    }
+    const registration = await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.getSubscription()
+    if (!subscription?.endpoint) {
+      throw new Error('A inscrição Push deste dispositivo não está ativa. Reative as notificações.')
+    }
+    return { registration, subscription }
+  }
 
   async function handleTestPush() {
     setTestingPush(true)
     setPushTestResult(null)
     try {
+      const { subscription } = await currentPushRegistration()
       if (!supabase) throw new Error('Supabase não configurado')
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Sessão expirada. Faça login novamente.')
-      const res = await fetch('/api/chamados/push/test', {
+      const res = await fetch('/api/push/test-device', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: 'Bearer ' + session.access_token,
         },
+        body: JSON.stringify({ endpoint: subscription.endpoint }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao enviar a notificação de teste')
-      if (data.total === 0) {
-        setPushTestResult({ ok: false, message: data.message || 'Nenhuma inscrição encontrada para este usuário' })
-      } else if (data.sent > 0) {
-        setPushTestResult({ ok: true, message: `Push de teste enviado (${data.sent}/${data.total}) — confira a notificação!` })
-      } else {
-        setPushTestResult({ ok: false, message: 'O envio falhou. Verifique as permissões do navegador.' })
+      if (data.sent !== true || data.status !== 'accepted') {
+        throw new Error('O servidor não confirmou a aceitação do Push para este dispositivo.')
       }
+      setPushTestResult({
+        ok: true,
+        message: 'O provedor aceitou o Push para este dispositivo. Isso não confirma exibição; se não apareceu, faça o teste local.',
+      })
     } catch (e) {
       setPushTestResult({ ok: false, message: e instanceof Error ? e.message : 'Erro ao testar a notificação' })
     } finally {
       setTestingPush(false)
+    }
+  }
+
+  async function handleLocalPushTest() {
+    setTestingLocalPush(true)
+    setPushTestResult(null)
+    try {
+      const { registration } = await currentPushRegistration()
+      await registration.showNotification('LabHub · teste local', {
+        body: 'Se este aviso apareceu, o navegador consegue exibir notificações.',
+        icon: '/logo-192.png',
+      })
+      setPushTestResult({
+        ok: true,
+        message: 'Teste local solicitado. Se não apareceu, confira as notificações do navegador e do sistema (Não Perturbe).',
+      })
+    } catch (e) {
+      setPushTestResult({
+        ok: false,
+        message: e instanceof Error ? e.message : 'O navegador não conseguiu exibir a notificação local.',
+      })
+    } finally {
+      setTestingLocalPush(false)
     }
   }
 
@@ -601,18 +639,26 @@ export function ProfileSheet({ open, onClose }: ProfileSheetProps) {
                         </button>
                       )}
                       {!pushLoading && supported && pushActive && (
-                        <button
-                          type="button"
-                          onClick={handleTestPush}
-                          disabled={testingPush}
-                          // O rótulo visível cabe em "Testar"; o nome acessível
-                          // continua sendo o completo, que é o que o leitor de
-                          // tela anuncia e o que os testes procuram.
-                          aria-label={testingPush ? 'Enviando notificação de teste' : 'Testar notificação'}
-                          className="min-h-11 shrink-0 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-fg transition-colors hover:bg-input disabled:opacity-60"
-                        >
-                          {testingPush ? 'Enviando…' : 'Testar'}
-                        </button>
+                        <div className="flex shrink-0 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleTestPush}
+                            disabled={testingPush || testingLocalPush}
+                            aria-label={testingPush ? 'Enviando notificação de teste' : 'Testar notificação'}
+                            className="min-h-11 rounded-lg border border-line bg-surface px-2.5 text-xs font-medium text-fg transition-colors hover:bg-input disabled:opacity-60"
+                          >
+                            {testingPush ? 'Enviando…' : 'Push'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleLocalPushTest}
+                            disabled={testingPush || testingLocalPush}
+                            aria-label="Testar exibição local"
+                            className="min-h-11 rounded-lg border border-line bg-surface px-2.5 text-xs font-medium text-fg transition-colors hover:bg-input disabled:opacity-60"
+                          >
+                            {testingLocalPush ? 'Testando…' : 'Local'}
+                          </button>
+                        </div>
                       )}
                     </div>
 

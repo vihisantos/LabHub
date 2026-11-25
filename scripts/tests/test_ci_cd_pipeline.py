@@ -112,7 +112,6 @@ def test_m01_merge_on_main_starts_delivery_without_manual_gate() -> None:
         "MIGRATIONS_BACKUP_CONFIRMED",
         "required_reviewers",
         "inputs.confirm",
-        "environment:",
     ):
         assert forbidden not in WORKFLOW_TEXT, f"gate manual indevido: {forbidden}"
     production_if = str(_job("production").get("if", ""))
@@ -132,9 +131,13 @@ def test_m02_pr_runs_validation_on_disposable_postgresql_17() -> None:
         assert required in runs
 
 
-def test_m03_pr_never_touches_shared_staging_or_production() -> None:
-    """m03: nenhum job de PR/escrita compartilhada é habilitado em pull_request."""
-    for job_name in ("stage-migrations", "release-gate", "production"):
+def test_m03_pr_never_touches_production_and_staging_is_internal_only() -> None:
+    """m03: PR interna pode testar staging; produção permanece exclusiva da main."""
+    stage = str(_job("stage-migrations").get("if", ""))
+    assert "pull_request" in stage
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in stage
+    assert "staging_candidate_guard.py" in str(_steps("stage-migrations"))
+    for job_name in ("release-gate", "production"):
         assert "pull_request" not in str(_job(job_name).get("if", ""))
     validate_text = str(_job("validate"))
     for secret in (
@@ -503,8 +506,9 @@ def test_release_gate_rejects_stale_runs(tmp_path, monkeypatch) -> None:
 
 def test_yaml_job_dependency_graph_is_exact() -> None:
     jobs = _workflow()["jobs"]
-    assert set(jobs) == {"validate", "stage-migrations", "release-gate", "production"}
-    assert jobs["validate"].get("needs") in (None, [])
+    assert set(jobs) == {"scope", "validate", "stage-migrations", "premerge-gate", "release-gate", "production"}
+    assert jobs["validate"]["needs"] == "scope"
+    assert set(jobs["premerge-gate"]["needs"]) == {"scope", "validate", "stage-migrations"}
     assert jobs["stage-migrations"]["needs"] == "validate"
     assert set(jobs["release-gate"]["needs"]) == {"validate", "stage-migrations"}
     assert jobs["production"]["needs"] == "release-gate"
@@ -552,11 +556,12 @@ def test_yaml_production_has_final_preapply_guard() -> None:
     assert steps.index(download) < steps.index(guard)
 
 
-def test_yaml_has_no_manual_trigger_environment_or_confirmation_output() -> None:
+def test_yaml_has_no_manual_trigger_or_paid_environment_requirement() -> None:
     data = _workflow()
     assert "workflow_dispatch" not in data["on"]
     for job in data["jobs"].values():
         assert "environment" not in job
+    assert "SUPABASE_PRODUCTION_ENV_READY" not in WORKFLOW_TEXT
     assert "outputs" not in data["jobs"].get("release-gate", {})
 
 
@@ -569,8 +574,10 @@ def test_yaml_push_to_main_has_no_paths_filter() -> None:
     push = triggers["push"]
     assert "main" in push["branches"]
     assert "paths" not in push, "filtro paths deixaria o HEAD da main sem execução"
-    # PRs continuam filtradas: validação focada no que pode mudar o schema.
-    assert "paths" in triggers["pull_request"]
+    # O check requerido sempre aparece; scope evita banco em PR sem SQL/runner.
+    assert "paths" not in triggers["pull_request"]
+    assert "git diff" in str(_steps("scope"))
+    assert "needs.scope.outputs.required" in str(_job("validate")["if"])
 
 
 def test_consecutive_pushes_resume_delivery_without_reapply() -> None:
@@ -701,3 +708,23 @@ def test_reconciliation_is_staging_only_and_contract_backed() -> None:
     assert "BEGIN READ ONLY;" in runner_source
     assert "ROLLBACK;" in runner_source
     assert runner_source.count("policy.is_staging") >= 1
+
+
+def test_premerge_gate_cannot_pass_when_required_staging_is_skipped_or_failed():
+    gate = _job("premerge-gate")
+    assert "always()" in gate["if"]
+    script = _step("premerge-gate", "Require real staging success")["run"]
+    import os
+    import subprocess
+    for required, validation, staging, internal, scope, expected in (
+        ("true", "success", "success", "true", "success", 0),
+        ("true", "success", "skipped", "true", "success", 1),
+        ("true", "failure", "skipped", "true", "success", 1),
+        ("true", "success", "success", "false", "success", 1),
+        ("false", "skipped", "skipped", "true", "success", 0),
+        ("false", "skipped", "skipped", "true", "failure", 1),
+        ("", "skipped", "skipped", "true", "success", 1),
+    ):
+        env = dict(os.environ, REQUIRED=required, VALIDATE_RESULT=validation,
+                   STAGING_RESULT=staging, INTERNAL_PR=internal, SCOPE_RESULT=scope)
+        assert subprocess.run(["bash", "-c", script], env=env, capture_output=True).returncode == expected

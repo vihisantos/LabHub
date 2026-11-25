@@ -1,77 +1,14 @@
-import { useEffect, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from './useAuth'
-import { authService } from './service'
 
 interface AuthGuardProps {
   children: ReactNode
   fallback?: ReactNode
 }
 
-/* ── Play approval sound + vibration ── */
-function playApprovalSound() {
-  // Vibrate on supported devices (mobile)
-  try {
-    if (navigator.vibrate) {
-      navigator.vibrate([80, 40, 80, 40, 120])
-    }
-  } catch { /* ignore */ }
-
-  // Play chime using Web Audio API
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const now = ctx.currentTime
-
-    // Create a pleasant two-tone chime
-    const osc1 = ctx.createOscillator()
-    const osc2 = ctx.createOscillator()
-    const gain = ctx.createGain()
-
-    osc1.type = 'sine'
-    osc1.frequency.setValueAtTime(523.25, now)       // C5
-    osc1.frequency.setValueAtTime(659.25, now + 0.1) // E5
-
-    osc2.type = 'sine'
-    osc2.frequency.setValueAtTime(783.99, now + 0.2) // G5
-
-    gain.gain.setValueAtTime(0, now)
-    gain.gain.linearRampToValueAtTime(0.15, now + 0.05)
-    gain.gain.linearRampToValueAtTime(0.08, now + 0.3)
-    gain.gain.linearRampToValueAtTime(0, now + 0.6)
-
-    osc1.connect(gain)
-    osc2.connect(gain)
-    gain.connect(ctx.destination)
-
-    osc1.start(now)
-    osc1.stop(now + 0.3)
-    osc2.start(now + 0.15)
-    osc2.stop(now + 0.5)
-
-    // Cleanup
-    setTimeout(() => ctx.close(), 1000)
-  } catch {
-    // Audio not supported — silently ignore
-  }
-}
-
 export function AuthGuard({ children, fallback }: AuthGuardProps) {
   const { user, loading, isConfigured } = useAuth()
-
-  // Poll for profile changes when user is pending
-  useEffect(() => {
-    if (user?.status !== 'pending') return
-
-    const interval = setInterval(async () => {
-      const updated = await authService.refreshProfile()
-      // If status changed to active, play the approval sound
-      if (updated?.status === 'active') {
-        playApprovalSound()
-      }
-    }, 15_000)
-
-    return () => clearInterval(interval)
-  }, [user?.status])
 
   if (!isConfigured) {
     return <>{children}</>
@@ -108,7 +45,7 @@ export function AuthGuard({ children, fallback }: AuthGuardProps) {
 
   // Conta pendente: a tela de espera vive na rota dedicada /approval-pending
   // (ApprovalRoute), que celebra a aprovação e libera a entrada.
-  if (user.status === 'pending') {
+  if (user.status !== 'active') {
     return <Navigate to="/approval-pending" replace />
   }
 

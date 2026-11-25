@@ -1375,6 +1375,16 @@ class TestAppNotifications:
         assert resp.status_code == 200
         assert len(resp.get_json()["notifications"]) == 2
 
+    def test_list_caps_response_at_fifty(self, root_client, fake_requests, monkeypatch):
+        headers = self._auth(fake_requests, monkeypatch, is_super=True)
+        fake_requests.route("GET", "app_notifications", FakeResponse([
+            {"id": str(i), "title": "Aviso", "workspace_id": None}
+            for i in range(70)
+        ]))
+        response = root_client.get("/api/app-notifications", headers=headers)
+        assert response.status_code == 200
+        assert len(response.get_json()["notifications"]) == 50
+
     def test_list_oculta_notificacoes_direcionadas_a_outro_usuario(
         self, root_client, fake_requests, monkeypatch
     ):

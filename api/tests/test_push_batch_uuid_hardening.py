@@ -259,12 +259,21 @@ def test_erro_real_do_supabase_fail_closed(push_module, monkeypatch):
     assert fake_http.calls == 1
 
 
-def test_super_admin_comportamento_preservado(push_module, monkeypatch):
-    """F) Super admin continua passando (bypass de workspace/min_level)."""
+def test_super_admin_sem_membership_nao_recebe_push_operacional(push_module, monkeypatch):
+    """F) Super admin global não recebe alertas operacionais de campus sem vínculo."""
     fake_http = _env(push_module, monkeypatch, [_sub(SUPER), _sub(FULL_A)])
-    ids = _select(push_module, WS_A)
-    assert ids == sorted([SUPER['id'], FULL_A['id']])
+    assert _select(push_module, WS_A) == [FULL_A['id']]
     assert fake_http.calls == 3  # memberships + role_permissions + membership_overrides
+
+
+def test_super_admin_com_membership_preserva_bypass_full_local(push_module, monkeypatch):
+    fake_http = _env(push_module, monkeypatch, [_sub(SUPER), _sub(FULL_A)])
+    fake_http.by_user = {**fake_http.by_user, SUPER['id']: [WS_A]}
+    fake_http.roles = {**fake_http.roles, SUPER['id']: 'role-vis'}
+    assert _select(push_module, WS_A) == sorted([SUPER['id'], FULL_A['id']])
+    assert _select(push_module, WS_B) == []
+    assert _select(push_module, WS_A, min_level='claim') == []
+
 
 
 def test_usuario_sem_membership_excluido(push_module, monkeypatch):

@@ -1,7 +1,7 @@
 import sys, os, re, secrets, hashlib, json, socket, ipaddress, time, functools, math, hmac, base64, uuid
 from datetime import datetime, timedelta, timezone, date
 from io import BytesIO
-from urllib.parse import urlparse, parse_qs, quote, urljoin
+from urllib.parse import urlparse, parse_qs, quote, urljoin, unquote
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'apps', 'reservalab', 'api')))
 from app import (
@@ -13,6 +13,9 @@ from app import (
     _push_notify_subs_dedup,
     _MODULE_PUSH_ACTIONS,
     _queue_push_event,
+    _internal_push_check,
+    _parse_spreadsheet,
+    _check_pending_users,
     push_notify,
     _push_outcome,
     PUSH_ACCEPTED,
@@ -55,8 +58,18 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
+from notification_periodic import due_inventory_check, run_inventory_check
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
+from notification_tick import (
+    TICK_PATH as _QSTASH_TICK_PATH,
+    PERIODIC_BODY as _QSTASH_PERIODIC_BODY,
+    tick_destination as _qstash_tick_destination,
+    periodic_producers_enabled as _periodic_producers_enabled,
+    verify_signed_tick as _verify_qstash_tick,
+    request_tick_for_created_ticket as _request_tick_for_created_ticket,
+    request_tick_for_chamados_event as _request_tick_for_chamados_event,
+)
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
                               parse_payload as _parse_workflow_payload,
@@ -84,7 +97,17 @@ def _enqueue_push_event(event_id, payload):
             ttl=payload.get('ttl', 86400),
             context=payload.get('context'),
             actions=payload.get('actions'),
+            exclude_user_id=payload.get('exclude_user_id'),
         )
+        if (status == 'queued'
+                and payload.get('module') == 'chamados'
+                and payload.get('context') != 'chamados-created'):
+            # Status, claim e atribuição não devem aguardar o próximo tick
+            # de 5 min. Falha no wake-up não desfaz a outbox durável; o
+            # schedule assinado faz a recuperação posterior.
+            if not _request_tick_for_chamados_event(str(event_id)):
+                if os.environ.get('VERCEL_ENV') == 'production':
+                    logger.warning('[notifications] wake-up QStash indisponível; fallback pelo schedule')
         return status in ('queued', 'duplicate')
     except Exception as exc:
         logger.exception("[notifications] falha ao persistir evento %s: %s", event_id, exc)
@@ -609,13 +632,10 @@ def _cloudinary_public_id(image_url: str) -> str | None:
     controladas pelo usuário.
     """
     cloud_name = os.environ.get('VITE_CLOUDINARY_CLOUD_NAME') or os.environ.get('CLOUDINARY_CLOUD_NAME', '')
-    if not cloud_name or cloud_name not in image_url:
+    prefix = f'https://res.cloudinary.com/{cloud_name}/image/upload/'
+    if not cloud_name or not isinstance(image_url, str) or not image_url.startswith(prefix):
         return None
-    marker = '/image/upload/'
-    idx = image_url.find(marker)
-    if idx < 0:
-        return None
-    raw = image_url[idx + len(marker):]
+    raw = image_url[len(prefix):]
     # Remove o prefixo de versão opcional (ex.: v1234567890/)
     slash = raw.find('/')
     if raw[:1] == 'v' and slash > 0 and raw[1:slash].isdigit():
@@ -623,7 +643,7 @@ def _cloudinary_public_id(image_url: str) -> str | None:
     # Remove query string e fragmento
     raw = raw.split('?', 1)[0].split('#', 1)[0]
     # Remove a extensão de imagem
-    for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf'):
+    for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.heic', '.heif', '.avif', '.bmp', '.tif', '.tiff', '.ico'):
         if raw.lower().endswith(ext):
             raw = raw[:-len(ext)]
             break
@@ -640,20 +660,24 @@ def _cloudinary_destroy(image_url: str) -> bool:
     api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
     if not cloud_name or not api_key or not api_secret:
         return False
-    import base64
-    auth = base64.b64encode(f'{api_key}:{api_secret}'.encode()).decode()
+    # Upload API destroy requires signed parameters, not Admin API Basic auth.
+    fields = {'public_id': public_id, 'invalidate': 'true', 'timestamp': str(int(time.time()))}
+    signed = '&'.join(f'{key}={fields[key]}' for key in sorted(fields))
+    signature = hashlib.sha256((signed + api_secret).encode()).hexdigest()
     destroy_url = f'https://api.cloudinary.com/v1_1/{cloud_name}/image/destroy'
     try:
         resp = requests.post(
             destroy_url,
-            data={'public_id': public_id},
-            headers={'Authorization': f'Basic {auth}'},
+            data={**fields, 'api_key': api_key, 'signature': signature},
             timeout=10,
         )
         if not resp.ok:
+            logger.warning('[cloudinary] destroy HTTP %s', resp.status_code)
             return False
-        return resp.json().get('result') == 'ok'
+        # A successful previous delete followed by a failed DB patch is retryable.
+        return resp.json().get('result') in ('ok', 'not found')
     except Exception:
+        logger.warning('[cloudinary] destroy unavailable')
         return False
 
 
@@ -3159,7 +3183,7 @@ def _notify_new_ticket(ticket):
             {
                 'title': title, 'body': body, 'module': 'chamados',
                 'workspace_id': ticket.get('workspace_id'),
-                'min_level': 'full', 'action_url': url,
+                'min_level': 'claim', 'action_url': url,
                 'context': 'chamados-created',
             },
         )
@@ -3348,9 +3372,11 @@ def chamados_create():
         # Notificação imediata: avisa o TI no momento em que o professor abre o chamado.
         # Evento, não agendamento — não depende de cron nenhum (próprio app).
         _notify_new_ticket(ticket)
-        # Experimento QStash: somente com flag explícita (default OFF).
-        # Falha no agendamento nunca desfaz a criação do professor.
+        # Agendamento durável por chamado: só roda se continuar aberto e sem
+        # responsável. Primeiro Push é acelerado por um tick assinado QStash;
+        # o schedule periódico recupera falhas (não bloqueia o professor).
         _schedule_chamado_workflow(ticket)
+        _request_tick_for_created_ticket(ticket.get('id') or '')
 
         # Auditoria do app (tabela 054): criação pública (sem actor autenticado,
         # actora é o solicitante).
@@ -3469,6 +3495,7 @@ def chamados_list():
         user_ws_ids = [str(w) for w in (user.get('workspace_ids') or [])]
         is_super_admin = bool(user.get('is_super_admin'))
         mine = _is_true(request.args.get('mine'))
+        snapshot_requested = request.headers.get('X-LabHub-Queue-Snapshot') == '1'
         # Identidade autenticada. `g.user_id` é o `sub` do JWT validado acima —
         # a fonte que o cliente não tem como influenciar.
         user_id = g.user_id or user.get('id')
@@ -3489,6 +3516,10 @@ def chamados_list():
                 return jsonify({'error': 'offset não pode ser negativo'}), 400
 
         workspace_id = request.args.get('workspace_id')
+        # Completeness applies only to the unfiltered operational queue.
+        snapshot = (snapshot_requested and not mine and not workspace_id
+                    and page_size is None and page_offset == 0
+                    and not request.args.get('status') and not request.args.get('reportedBy'))
         if workspace_id:
             if not is_super_admin and workspace_id not in user_ws_ids:
                 return jsonify({'error': 'Acesso negado a este workspace'}), 403
@@ -3529,7 +3560,7 @@ def chamados_list():
             url += f'&workspace_id=eq.{quote(workspace_id)}'
         elif not is_super_admin:
             if not user_ws_ids:
-                return jsonify({'tickets': []})
+                return jsonify({'tickets': [], 'snapshotComplete': True} if snapshot else {'tickets': []})
             # Sem filtro: só entram os workspaces onde o usuário tem `ticket.view`.
             # Membership sozinho não autoriza leitura de chamados.
             viewable = [w for w in user_ws_ids
@@ -3553,7 +3584,7 @@ def chamados_list():
             if page_offset:
                 url += f'&offset=.{page_offset}'
         headers = _supabase_headers()
-        if page_size is not None:
+        if page_size is not None or snapshot:
             # `count=exact` devolve o total de registros da consulta (filtrada)
             # no header `Content-Range` — a base da paginação com page numbers.
             headers = {**headers, 'Prefer': 'count=exact'}
@@ -3565,7 +3596,11 @@ def chamados_list():
         # É a mesma defesa do fluxo público (`_project_public_ticket`).
         tickets = [_project_internal_ticket(t) for t in (resp.json() or [])]
         if page_size is None:
-            return jsonify({'tickets': tickets})
+            payload = {'tickets': tickets}
+            if snapshot:
+                total = _parse_content_range_total(resp.headers.get('Content-Range'))
+                payload['snapshotComplete'] = total is not None and total == len(tickets)
+            return jsonify(payload)
         # Paginado: anexa metadados. `total` é opcional (Content-Range) —
         # se o serviço não devolver, o cliente navega por `hasMore`.
         payload = {
@@ -4228,7 +4263,12 @@ def chamados_manage(ticket_id):
              and ticket.get('status') == 'aberto')
                 or (assignment_changed and not ticket.get('assignedToUserId')
                     and ticket.get('status') == 'aberto')):
-            _schedule_chamado_workflow(ticket)
+            if _schedule_chamado_workflow(ticket):
+                # Reabertura/desatribuição pode não criar Push para usuário
+                # logado: o Workflow precisa do próprio wake-up imediato.
+                _request_tick_for_chamados_event(
+                    _chamados_event_id('workflow-rescheduled', ticket)
+                )
 
         # `ticket` aqui é a representação COMPLETA devolvida pelo PATCH
         # (Prefer: return=representation). Filtra pela allowlist interna antes
@@ -5903,7 +5943,7 @@ def _revalidate_super_admin_subs(subs: list) -> list:
 
 def _eligible_reminder_subs(workspace_id: str) -> list:
     """Destinatários elegíveis no workspace, sem duplicatas de identidade."""
-    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='full')
+    subs = _target_subs(module='chamados', workspace_id=workspace_id, min_level='claim')
     subs = _revalidate_super_admin_subs(subs)
     out = []
     seen = set()
@@ -6450,7 +6490,205 @@ def chamados_reminders_check():
 
 # ── Fila centralizada de notificações (PostgreSQL outbox + Upstash) ────────
 
-def _deliver_outbox_notification(event_id, payload):
+def _safe_push_action_url(value) -> bool:
+    """Aceita rotas internas do PWA sem afrouxar proteção de URLs externas.
+
+    `_is_safe_url` do ReservaLab foi feito para fetch externo e exige
+    http(s) absoluto. Links do PWA são root-relative, como /chamados/tickets/id.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        return False
+    decoded = unquote(value)
+    if (
+        value.startswith("/") and not value.startswith("//")
+        and decoded.startswith("/") and not decoded.startswith("//")
+        and "\\" not in decoded
+    ):
+        parsed = urlparse(value)
+        return not parsed.scheme and not parsed.netloc
+    return _is_safe_url(value)
+
+
+def _created_push_still_actionable(action_url, workspace_id):
+    """Descarta aviso de ABERTURA obsoleto após claim/indeferimento/fechamento.
+
+    A fila pode ficar parada durante um incidente: o Web Push "Novo chamado"
+    só é útil enquanto o ticket permanece aberto e sem responsável.
+    Falhas de consulta ao banco NÃO viram ACK silencioso; geram retry.
+    """
+    match = re.fullmatch(
+        r'/chamados/tickets/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',
+        action_url or '',
+    )
+    if not match or not workspace_id:
+        return False
+    try:
+        ticket_id = str(uuid.UUID(match.group(1)))
+        workspace_id = str(uuid.UUID(str(workspace_id)))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        raise RuntimeError('Banco indisponível para revalidar chamado')
+
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
+        f'?id=eq.{quote(ticket_id)}'
+        f'&select=id,workspace_id,status,assignedToUserId'
+        f'&limit=1',
+        headers=_supabase_headers(),
+        timeout=8,
+    )
+    if not resp.ok:
+        raise RuntimeError('Não foi possível revalidar abertura de chamado')
+    rows = resp.json()
+    if not isinstance(rows, list):
+        raise RuntimeError('Resposta inválida ao revalidar chamado')
+    if not rows:
+        return False
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise RuntimeError('Resposta ambígua ao revalidar chamado')
+    ticket = rows[0]
+    return (
+        str(ticket.get('workspace_id') or '') == workspace_id
+        and _is_ticket_eligible_for_reminder(ticket)
+    )
+
+
+# Only these explicitly opted-in operational events can populate the bell.
+_PERIODIC_BELL_LEVELS = {
+    ('reservalab', 'tablet'): 'full',
+    ('reservalab', 'lab-reserva'): 'full',
+    ('stock', 'overdue'): None,
+    ('stock', 'stock-expiry'): None,
+    ('pc-care', 'pcare-part'): None,
+    ('pc-care', 'pcare-maint'): None,
+}
+
+
+def _persist_periodic_bell(event_id, payload, title, message, action_url):
+    module, context = payload.get('module'), payload.get('context')
+    workspace = payload.get('workspace_id')
+    if (module, context) not in _PERIODIC_BELL_LEVELS or not workspace:
+        raise ValueError('invalid periodic bell scope')
+    # The existing outbox owns delivery. This INSERT must NOT create a
+    # second outbox event. Stable ID + conflict ignore makes retry idempotent.
+    row = {
+        'id': f'periodic:{module}:{context}:{event_id}',
+        'title': title, 'body': message, 'module': module,
+        'workspace_id': workspace, 'audience': 'workspace',
+        'type': 'maintenance' if module == 'pc-care' else ('asset' if module == 'stock' else 'system'),
+        'severity': 'warning', 'action_url': action_url,
+    }
+    if not _require_supabase():
+        raise RuntimeError('bell database unavailable')
+    response = requests.post(
+        f'{_SUPABASE_URL}/rest/v1/app_notifications',
+        params={'on_conflict': 'id'},
+        headers={**_supabase_headers(), 'Prefer': 'resolution=ignore-duplicates,return=minimal'},
+        json=row, timeout=8,
+    )
+    if not response.ok:
+        raise RuntimeError('periodic bell persistence failed')
+
+
+def _periodic_bell_authorizer(user_id):
+    """Resolve RBAC once per list request. Failed reads never grant access.
+
+    Do not reuse push subscription snapshots or helpers that swallow a failed
+    override lookup as an empty override map.
+    """
+    def read(table, params):
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers=_supabase_headers(), timeout=6,
+        )
+        if not response.ok:
+            raise RuntimeError('bell authorization unavailable')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid bell authorization response')
+        return rows
+
+    memberships = read('memberships', {
+        'profile_id': f'eq.{user_id}', 'status': 'eq.active',
+        'select': 'id,workspace_id,role_id,status',
+    })
+    memberships = {str(m['workspace_id']): m for m in memberships
+                   if m.get('status') == 'active' and m.get('id') and m.get('workspace_id')}
+    role_ids = sorted({str(m['role_id']) for m in memberships.values() if m.get('role_id')})
+    member_ids = sorted({str(m['id']) for m in memberships.values()})
+    roles, overrides = {}, {}
+    if role_ids:
+        for row in read('role_permissions', {
+            'role_id': 'in.(' + ','.join(role_ids) + ')',
+            'scope': 'eq.workspace', 'select': 'role_id,action,scope',
+        }):
+            if row.get('scope') == 'workspace':
+                roles.setdefault(str(row['role_id']), set()).add(row['action'])
+    if member_ids:
+        for row in read('membership_overrides', {
+            'membership_id': 'in.(' + ','.join(member_ids) + ')',
+            'select': 'membership_id,action,effect',
+        }):
+            overrides.setdefault(str(row['membership_id']), {})[row['action']] = row['effect']
+
+    def allowed(row):
+        parts = str(row.get('id') or '').split(':', 3)
+        if len(parts) != 4 or parts[1] != row.get('module'):
+            return False
+        pair = (parts[1], parts[2])
+        if pair not in _PERIODIC_BELL_LEVELS:
+            return False
+        member = memberships.get(str(row.get('workspace_id')))
+        if not member:
+            return False
+        actions = _MODULE_PUSH_ACTIONS.get(pair[0], {}).get(_PERIODIC_BELL_LEVELS[pair], ())
+        base = roles.get(str(member.get('role_id')), set())
+        effects = overrides.get(str(member['id']), {})
+        return any(effects.get(action) == 'allow' or
+                   (effects.get(action) is None and action in base) for action in actions)
+    return allowed
+
+
+def _lab_reminder_current(workspace_id, reservation_id, expires_at, snapshots=None):
+    """Fresh per-campus source read; never substitute the global spreadsheet.
+    Reuse a successful snapshot for at most 30s within this worker batch only.
+    An unavailable/invalid source is a retry, not a confirmed cancellation.
+    """
+    if not workspace_id or not reservation_id:
+        raise ValueError('lab reminder missing identity or scope')
+    cached = snapshots.get(workspace_id) if snapshots is not None else None
+    if cached is not None and time.monotonic() - cached[0] <= 30:
+        rows = cached[1]
+    else:
+        if not _require_supabase():
+            raise RuntimeError('lab revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/workspaces',
+            params={'id': f'eq.{workspace_id}', 'select': 'id,spreadsheet_url,lab_count'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('lab workspace revalidation failed')
+        workspaces = response.json()
+        if not isinstance(workspaces, list):
+            raise RuntimeError('invalid lab workspace response')
+        if not workspaces or not workspaces[0].get('spreadsheet_url'):
+            return False
+        workspace = workspaces[0]
+        today, upcoming = _parse_spreadsheet(
+            workspace['spreadsheet_url'], lab_count=int(workspace.get('lab_count') or 2), strict=True,
+        )
+        rows = [*today, *upcoming]
+        if snapshots is not None:
+            snapshots[workspace_id] = (time.monotonic(), rows)
+    # reservation_id covers date, time, lab(s), professor and booker.
+    return any(str(row.get('reservation_id') or '') == str(reservation_id) for row in rows)
+
+
+def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
     """Entrega um evento persistido no outbox aos subscribers autorizados."""
     if not isinstance(payload, dict):
         raise ValueError('payload de notificação inválido')
@@ -6470,8 +6708,100 @@ def _deliver_outbox_notification(event_id, payload):
     except (TypeError, ValueError):
         ttl = 86400
 
-    if not isinstance(action_url, str) or not _is_safe_url(action_url):
+    if not _safe_push_action_url(action_url):
         action_url = '/'
+
+    if module == 'chamados' and context == 'chamados-created':
+        if not _created_push_still_actionable(action_url, workspace_id):
+            logger.info('[notifications] aviso de abertura obsoleto descartado: %s', event_id)
+            return True
+
+    if payload.get('expires_at'):
+        try:
+            expires_at = datetime.fromisoformat(str(payload['expires_at']).replace('Z', '+00:00'))
+            if expires_at.tzinfo is None:
+                raise ValueError('timezone required')
+        except (ValueError, TypeError) as exc:
+            raise ValueError('invalid notification expiration') from exc
+        if datetime.now(timezone.utc) >= expires_at:
+            return True  # obsolete reservation: do not deliver after its start
+
+    if module == 'reservalab' and context == 'tablet' and payload.get('reservation_id'):
+        # A queued tablet reminder must not outlive a cancellation, reschedule
+        # or campus transfer. A failed read leaves the event available for retry.
+        try:
+            reservation_id = str(uuid.UUID(str(payload['reservation_id'])))
+        except (ValueError, TypeError):
+            raise ValueError('invalid tablet reservation identity')
+        if not workspace_id or not payload.get('expires_at'):
+            raise ValueError('tablet reminder missing scope or start time')
+        if not _require_supabase():
+            raise RuntimeError('tablet revalidation unavailable')
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/tablet_reservations',
+            params={'id': f'eq.{reservation_id}', 'workspace_id': f'eq.{workspace_id}',
+                    'status': 'eq.ativa', 'select': 'horario_inicio'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not response.ok:
+            raise RuntimeError('tablet revalidation failed')
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise RuntimeError('invalid tablet revalidation response')
+        if not rows:
+            return True
+        current_start = datetime.fromisoformat(str(rows[0]['horario_inicio']).replace('Z', '+00:00'))
+        if current_start.tzinfo is None:
+            raise ValueError('invalid tablet start time')
+        if current_start != expires_at:
+            return True
+
+    if module == 'reservalab' and context == 'lab-reserva' and payload.get('reservation_id'):
+        if not payload.get('expires_at'):
+            raise ValueError('lab reminder missing start time')
+        if not _lab_reminder_current(workspace_id, payload['reservation_id'], expires_at, lab_snapshots):
+            return True
+        # Source reads can take time; recheck before publishing the reminder.
+        if datetime.now(timezone.utc) >= expires_at:
+            return True
+
+    # Preserve the operational recipient restriction of the legacy reminder.
+    if module == 'reservalab' and context in ('lab-reserva', 'tablet'):
+        min_level = 'full'
+
+    if module == 'auth' and context == 'pending-user':
+        # Recheck the applicant and current active super-admin privileges.
+        # A subscription snapshot may be stale after account approval/demotion.
+        pending_id = parse_qs(urlparse(action_url).query).get('pending', [''])[0]
+        try:
+            pending_id = str(uuid.UUID(pending_id))
+        except (TypeError, ValueError):
+            return True
+        if not _require_supabase():
+            raise RuntimeError('approval revalidation unavailable')
+        pending = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'id': f'eq.{pending_id}', 'status': 'eq.pending', 'select': 'id'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not pending.ok:
+            raise RuntimeError('approval revalidation failed')
+        if not pending.json():
+            return True
+        admins = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/profiles',
+            params={'status': 'eq.active', 'is_super_admin': 'eq.true', 'select': 'id,notify_settings'},
+            headers=_supabase_headers(), timeout=8,
+        )
+        if not admins.ok:
+            raise RuntimeError('approval recipient revalidation failed')
+        eligible_admins = {}
+        for row in admins.json():
+            settings = row.get('notify_settings') or {}
+            if not settings.get('muted') and (settings.get('apps') or {}).get('auth', {}).get('push', True):
+                eligible_admins[str(row['id'])] = row
+    else:
+        eligible_admins = None
 
     targeting_module = module
     if module and module not in _MODULE_PUSH_ACTIONS:
@@ -6482,14 +6812,24 @@ def _deliver_outbox_notification(event_id, payload):
             targeting_module = None
         else:
             raise ValueError('módulo sem política RBAC de Push')
+    strict_stock_movement = module == 'stock' and context in ('stock-loan', 'stock-return')
+    if strict_stock_movement and not workspace_id:
+        raise ValueError('movimento de estoque sem campus')
+    scoped_chamados = module == 'chamados' and (min_level in ('claim', 'full')
+        or context in ('chamados-created', 'chamados-claimed', 'chamados-assigned'))
+    if scoped_chamados and not workspace_id:
+        raise ValueError('aviso operacional de chamados sem campus')
     subs = _target_subs(
         module=targeting_module,
         workspace_id=workspace_id,
         user_id=user_id,
         role=role,
         min_level=min_level,
+        strict=True,
     )
-    if target_super_admin is True:
+    if eligible_admins is not None:
+        subs = [sub for sub in subs if str((sub.get('user') or {}).get('id') or '') in eligible_admins]
+    elif target_super_admin is True:
         subs = [
             sub for sub in subs
             if bool((sub.get('user') or {}).get('is_super_admin'))
@@ -6500,6 +6840,9 @@ def _deliver_outbox_notification(event_id, payload):
             sub for sub in subs
             if str((sub.get('user') or {}).get('id') or '') != exclude_user_id
         ]
+
+    if payload.get('persist_inapp') is True:
+        _persist_periodic_bell(event_id, payload, title, message, action_url)
 
     if not subs:
         return True
@@ -6529,38 +6872,175 @@ def _deliver_outbox_notification(event_id, payload):
     return True
 
 
-@_route_once('/api/notifications/worker', methods=['POST'])
-@require_cron
-def notifications_worker():
-    """Executa publicação e consumo em lotes pequenos, sem comandos bloqueantes."""
+def _run_notification_worker(publish_limit: int, consume_limit: int) -> tuple[dict, int]:
+    """Núcleo compartilhado: cron legado e tick assinado usam os mesmos locks."""
     if redis is None:
-        return jsonify({'error': 'Upstash Redis não configurado'}), 503
+        return {'error': 'Upstash Redis não configurado'}, 503
     if not pg_store.is_configured():
-        return jsonify({'error': 'PostgreSQL não configurado'}), 503
+        return {'error': 'PostgreSQL não configurado'}, 503
     try:
-        body = request.get_json(silent=True) or {}
-        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
-        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
         worker_id = f"{os.environ.get('VERCEL_REGION', 'worker')}:{uuid.uuid4().hex}"
-        queue = NotificationQueue(redis)
+        if os.environ.get("VERCEL_ENV") == "preview":
+            if not _qstash_tick_destination():
+                return {"error": "Preview de notificações não habilitada"}, 503
+            queue = NotificationQueue(redis, stream="labhub:staging:notifications:stream:v1", group="labhub-staging-notification-workers")
+        else:
+            queue = NotificationQueue(redis)
         published = publish_pending(
             pg_store.store, queue, worker_id, limit=publish_limit,
         )
+        lab_snapshots = {}
+        def deliver(event_id, payload):
+            return _deliver_outbox_notification(event_id, payload, lab_snapshots=lab_snapshots)
         processed = process_pending(
-            pg_store.store, queue, worker_id, _deliver_outbox_notification,
+            pg_store.store, queue, worker_id, deliver,
             count=consume_limit,
         )
-        return jsonify({
+        return {
             'status': 'ok',
             'worker_id': worker_id,
             'published': published,
             'processed': processed,
-        })
+        }, 200
+    except Exception as exc:
+        logger.exception('notification worker failed: %s', type(exc).__name__)
+        return {'error': 'Falha no worker de notificações'}, 503
+
+
+@_route_once('/api/notifications/worker', methods=['POST'])
+@require_cron
+def notifications_worker():
+    """Endpoint legado protegido por CRON_SECRET (mantido como fallback)."""
+    try:
+        body = request.get_json(silent=True) or {}
+        publish_limit = max(1, min(int(body.get('publish_limit', 20)), 50))
+        consume_limit = max(1, min(int(body.get('consume_limit', 10)), 25))
     except (TypeError, ValueError) as exc:
         return jsonify({'error': f'Parâmetros inválidos: {str(exc)[:120]}'}), 400
+    result, code = _run_notification_worker(publish_limit, consume_limit)
+    return jsonify(result), code
+
+
+def _periodic_inventory_check(kind, now):
+    def read(schema, table, params):
+        if not _require_supabase():
+            raise RuntimeError('inventory database unavailable')
+        resp = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+            headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
+        )
+        if not resp.ok:
+            raise RuntimeError('inventory read failed')
+        return resp.json()
+    def enqueue(*args, **kwargs):
+        return _queue_push_event(*args, **kwargs, persist_inapp=True)
+    if redis is None:
+        raise RuntimeError('inventory continuation store unavailable')
+    prefix = 'labhub:staging:' if os.environ.get('VERCEL_ENV') == 'preview' else 'labhub:'
+    key = prefix + 'notifications:inventory-cursor:v1:' + kind
+    cursor = redis.get(key)
+    if cursor:
+        cursor = str(uuid.UUID(str(cursor)))
+    result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
+    if 'next_cursor' in result:
+        next_cursor = result.pop('next_cursor')
+        if next_cursor:
+            next_cursor = str(uuid.UUID(next_cursor))
+            if redis.set(key, next_cursor, ex=604800) != 'OK':
+                raise RuntimeError('inventory continuation write failed')
+        elif cursor:
+            redis.delete(key)
+    return result
+
+
+@_route_once(_QSTASH_TICK_PATH, methods=['POST'])
+def notifications_qstash_tick():
+    """Tick QStash assinado: outbox de push e dispatcher dos workflows.
+
+    O agendador executa, mas só há Push se existir evento/aviso elegível.
+    As cobranças em si são por chamado e revalidam status/responsável
+    antes de cada envio; concorrência com o cron legado usa locks e dedup.
+    """
+    if not _qstash_tick_destination():
+        return jsonify({'error': 'Não encontrado'}), 404
+
+    # Body e destino têm contrato fixo: sem URL arbitrária, JWT exposto ou
+    # parâmetros que permitam alterar lote, campus, destinatários ou intervalo.
+    if request.content_length is not None and request.content_length > 256:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+    raw_body = request.get_data(cache=False)
+    try:
+        verified = _verify_qstash_tick(
+            raw_body,
+            request.headers.get('Upstash-Signature', ''),
+        )
+    except (RuntimeError, ImportError):
+        logger.warning('[notifications] QStash tick indisponível: credenciais ou SDK')
+        return jsonify({'error': 'Agendador indisponível'}), 503
+    if not verified:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+
+    if raw_body == _QSTASH_PERIODIC_BODY and _periodic_producers_enabled():
+        # Recover critical work before any slow external spreadsheet reads.
+        try:
+            workflow_result = _drain_chamado_workflow_outbox(limit=5)
+        except Exception as exc:
+            logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+            workflow_result = {'error': type(exc).__name__}
+        queue_result, queue_code = _run_notification_worker(5, 5)
+        # Distinct signed job: event wake-ups never scan external spreadsheets.
+        # This job replaces the 5-minute schedule body only; fast event wakeups
+        # continue using the original body. No additional schedule is needed.
+        results = {}
+        try:
+            outcome = _check_pending_users(require_outbox=True)
+            results['approval'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] approval periodic failed: %s', type(exc).__name__)
+            results['approval'] = {'error': 'check failed'}
+        now = datetime.now(timezone(timedelta(hours=-3)))
+        inventory_kind = due_inventory_check(now)
+        if inventory_kind:
+            try:
+                results[inventory_kind] = _periodic_inventory_check(inventory_kind, now)
+            except Exception as exc:
+                logger.warning('[notifications] inventory periodic failed: %s', type(exc).__name__)
+                results[inventory_kind] = {'error': 'check failed'}
+        try:
+            outcome = _internal_push_check(strict_scope=True)
+            results['reservalab'] = outcome if isinstance(outcome, dict) else {'error': 'invalid result'}
+        except Exception as exc:
+            logger.warning('[notifications] reservation periodic failed: %s', type(exc).__name__)
+            results['reservalab'] = {'error': 'check failed'}
+        queued = sum(int(result.get('queued') or 0) for result in results.values())
+        delivery, code = ({'status': 'not_needed'}, 200)
+        if queued:
+            delivery, code = _run_notification_worker(5, 5)
+        failed = (queue_code != 200 or code != 200 or workflow_result.get('error')
+                  or workflow_result.get('reconcile_error')
+                  or any(result.get('error') for result in results.values()))
+        return jsonify({
+            'status': 'error' if failed else 'ok',
+            'periodic': results,
+            'queue': queue_result,
+            'chamados': workflow_result,
+            'periodic_delivery': delivery,
+        }), (503 if failed else 200)
+
+    queue_result, queue_code = _run_notification_worker(5, 5)
+    try:
+        workflow_result = _drain_chamado_workflow_outbox(limit=5)
     except Exception as exc:
-        logger.exception('notification worker failed: %s', exc)
-        return jsonify({'error': 'Falha no worker de notificações'}), 503
+        logger.warning('[notifications] dispatch QStash falhou: %s', type(exc).__name__)
+        workflow_result = {'error': type(exc).__name__}
+
+    failed = (queue_code != 200 or workflow_result.get('error')
+              or workflow_result.get('reconcile_error'))
+    return jsonify({
+        'status': 'error' if failed else 'ok',
+        'queue': queue_result,
+        'chamados': workflow_result,
+    }), (503 if failed else 200)
 
 
 # ── Notificações in-app (sino) bem-vindo do painel do admin ─────────────────
@@ -6629,20 +7109,45 @@ def app_notifications_list():
         (role/user) é reaplicada no cliente (notificationAppliesTo).
     """
     if not _require_supabase():
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Serviço de notificações indisponível'}), 503
     try:
         user = g.user or {}
         is_super = bool(user.get('is_super_admin'))
         ws_ids = set(_get_user_workspace_ids(g.user_id)) if not is_super else None
 
+        # Apply coarse audience constraints before LIMIT, so a different
+        # campus's recent events cannot consume the entire query window.
+        def safe_id(value):
+            value = str(value)
+            if not re.fullmatch(r'[A-Za-z0-9_-]+', value):
+                raise ValueError('invalid notification audience identifier')
+            return value
+
+        filters = [f'or(target_user_id.is.null,target_user_id.eq.{safe_id(g.user_id)})']
+        if not is_super:
+            filters.append('or(target_super_admin.is.null,target_super_admin.eq.false)')
+            scopes = ','.join(safe_id(w) for w in sorted(ws_ids))
+            filters.append(f'or(workspace_id.is.null,workspace_id.in.({scopes}))'
+                           if scopes else 'workspace_id.is.null')
+        params = {
+            'select': '*',
+            'order': 'created_at.desc,id.desc',
+            'limit': 50,
+            'and': '(' + ','.join(filters) + ')',
+        }
         resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/app_notifications'
-            f'?select=*&order=created_at.desc&limit=200',
+            f'{_SUPABASE_URL}/rest/v1/app_notifications',
+            params=params,
             headers=_supabase_headers(),
             timeout=10,
         )
-        rows = resp.json() if resp.ok else []
+        if not resp.ok:
+            return jsonify({'error': 'Falha ao consultar notificações'}), 503
+        rows = resp.json()
+        if not isinstance(rows, list):
+            return jsonify({'error': 'Resposta inválida de notificações'}), 503
         out = []
+        periodic_allowed = None
         for r in rows or []:
             # Notificações direcionadas a uma pessoa são privadas no backend;
             # não confiar no filtro visual do cliente para proteger o conteúdo.
@@ -6654,14 +7159,19 @@ def app_notifications_list():
             if r.get('target_super_admin') is True and not is_super:
                 continue
             w = r.get('workspace_id')
+            if str(r.get('id') or '').startswith('periodic:') and not is_super:
+                if periodic_allowed is None:
+                    periodic_allowed = _periodic_bell_authorizer(g.user_id)
+                if not periodic_allowed(r):
+                    continue
             if is_super:
                 out.append(r)
             elif w is None or (w and str(w) in ws_ids):
                 out.append(r)
-        return jsonify({'notifications': out})
+        return jsonify({'notifications': out[:50], 'periodic_window': True})
     except Exception as e:
         logger.error("app notifications error: %s", e)
-        return jsonify({'notifications': []})
+        return jsonify({'error': 'Falha ao consultar notificações'}), 503
 
 
 # ── Zerar dados (factory reset) ──
@@ -7904,86 +8414,145 @@ def chamados_reports_weekly_email():
         return jsonify({'error': 'Erro interno'}), 500
 
 
+def _photo_purge_eligible(ticket, cutoff):
+    """Indeferido has no closedAt; updatedAt is a conservative retention bound."""
+    status = ticket.get('status')
+    stamp = ticket.get('closedAt') if status == 'fechado' else ticket.get('updatedAt') if status == 'indeferido' else None
+    try:
+        dt = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+        return dt.tzinfo is not None and dt < cutoff
+    except (TypeError, ValueError):
+        return False
+
+
+def _photo_purge_read(table, params):
+    # No destructive work starts until a complete bounded reference snapshot exists.
+    rows = []
+    for offset in range(0, 10000, 500):
+        response = requests.get(
+            f'{_SUPABASE_URL}/rest/v1/{table}',
+            params={**params, 'order': 'id.asc', 'limit': 500, 'offset': offset},
+            headers=_supabase_headers(), timeout=15,
+        )
+        if not response.ok:
+            raise RuntimeError('photo reference read failed')
+        page = response.json()
+        if not isinstance(page, list):
+            raise RuntimeError('invalid photo reference response')
+        rows.extend(page)
+        if len(page) < 500:
+            return rows
+    raise RuntimeError('photo reference scan limit exceeded')
+
+
 @_route_once('/api/chamados/photos/purge', methods=['POST'])
 @require_cron
 def chamados_photos_purge():
-    """Cron diário: apaga do Cloudinary as fotos de chamados fechados há mais de 2 dias.
-
-    Roda via GitHub Actions (photos-cleanup.yml) com Bearer CRON_SECRET.
-    Limpa a coluna photos do ticket e photo_urls dos eventos afetados.
-    """
+    """Daily retention: only scoped terminal ticket assets, no orphan deletion."""
+    if os.environ.get('VERCEL_ENV') == 'preview':
+        return jsonify({'error': 'Photo purge is production-only'}), 403
     if not _require_supabase():
         return jsonify({'error': 'Supabase não configurado'}), 503
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({'error': 'Invalid body'}), 400
+    dry_run = body.get('dry_run') is True
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/chamados_tickets'
-            f'?status=eq.fechado&closedAt=lt.{quote(cutoff)}&select=id,workspace_id,photos',
-            headers=_supabase_headers(),
-            timeout=15,
-        )
-        if not resp.ok:
-            return jsonify({'error': 'Erro ao buscar chamados fechados'}), 502
-        tickets = resp.json() or []
-
-        deleted = 0
-        cleared_tickets = []
-        cleared_events = 0
-
-        for t in tickets:
-            ticket_photo = str(t.get('photos') or '').strip()
-            if ticket_photo and ticket_photo.startswith('https://res.cloudinary.com/') and _cloudinary_destroy(ticket_photo):
-                deleted += 1
-                cleared_tickets.append(t.get('id'))
-                requests.patch(
-                    f'{_SUPABASE_URL}/rest/v1/chamados_tickets?id=eq.{quote(t.get("id"))}',
-                    headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-                    json={'photos': '', 'updatedAt': datetime.now(timezone.utc).isoformat()},
-                    timeout=10,
-                )
-
-        ticket_ids = [t.get('id') for t in tickets if t.get('id')]
-        if ticket_ids:
-            events_resp = requests.get(
-                f'{_SUPABASE_URL}/rest/v1/ticket_events'
-                f'?ticket_id=in.({",".join(quote(i) for i in ticket_ids)})&select=id,photo_urls',
-                headers=_supabase_headers(),
-                timeout=15,
-            )
-            if events_resp.ok:
-                for ev in (events_resp.json() or []):
-                    try:
-                        urls = json.loads(ev.get('photo_urls') or '[]')
-                    except (TypeError, ValueError):
-                        urls = []
-                    cloud_urls = [u for u in urls if isinstance(u, str) and u.startswith('https://res.cloudinary.com/')]
-                    if not cloud_urls:
-                        continue
-                    removed = 0
-                    for u in cloud_urls:
-                        if _cloudinary_destroy(u):
-                            removed += 1
-                    if removed:
-                        deleted += removed
-                        cleared_events += 1
-                        remaining = [u for u in urls if u not in cloud_urls]
-                        requests.patch(
-                            f'{_SUPABASE_URL}/rest/v1/ticket_events?id=eq.{quote(ev.get("id"))}',
-                            headers={**_supabase_headers(), 'Prefer': 'return=minimal'},
-                            json={'photo_urls': json.dumps(remaining, ensure_ascii=False)},
-                            timeout=10,
-                        )
-
-        return jsonify({
-            'tickets_scanned': len(tickets),
-            'tickets_cleared': len(cleared_tickets),
-            'events_cleared': cleared_events,
-            'photos_deleted': deleted,
+        tickets = _photo_purge_read('chamados_tickets', {
+            'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
         })
-
-    except Exception as e:
-        logger.error("Erro interno na API: %s", e)
-        return jsonify({'error': 'Erro interno'}), 500
+        events = _photo_purge_read('ticket_events', {
+            'select': 'id,ticket_id,workspace_id,photo_urls', 'photo_urls': 'neq.',
+        })
+        by_id = {t['id']: t for t in tickets}
+        eligible = {t['id'] for t in tickets if _photo_purge_eligible(t, cutoff)}
+        references = {}
+        failures = 0
+        def add(url, parent, table, row, original):
+            if not isinstance(url, str) or not url.startswith('https://res.cloudinary.com/'):
+                return
+            public_id = _cloudinary_public_id(url)
+            if not public_id or not re.fullmatch(r'chamados/[A-Za-z0-9_-]+', public_id):
+                return  # Never purge avatars, stock, other clouds or ambiguous URLs.
+            references.setdefault(public_id, []).append((url, parent, table, row, original))
+        for t in tickets:
+            add(t.get('photos'), t['id'], 'chamados_tickets', t, t.get('photos'))
+        for e in events:
+            raw = e.get('photo_urls')
+            try:
+                urls = json.loads(raw or '[]')
+            except (TypeError, ValueError):
+                urls = None
+            # Legacy single data URLs are local-only and cannot refer to a
+            # remote asset. All other malformed records block deletion rather
+            # than guessing whether a substring represents a Cloudinary URL.
+            if isinstance(urls, str) and urls.startswith('data:image/'):
+                continue
+            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
+                raise RuntimeError('ambiguous photo reference')
+            for url in urls:
+                add(url, e.get('ticket_id'), 'ticket_events', e, raw)
+        candidates = {pid: refs for pid, refs in references.items()
+                      if all(parent in eligible and row.get('workspace_id') == by_id[parent].get('workspace_id')
+                             and row.get('workspace_id') for _, parent, _, row, _ in refs)}
+        result = {'tickets_scanned': len(eligible), 'tickets_cleared': 0, 'events_cleared': 0,
+                  'photos_deleted': 0, 'eligible_assets': len(candidates), 'failures': 0,
+                  'dry_run': dry_run}
+        if dry_run:
+            return jsonify(result)
+        removed = set()
+        # Bound destructive work; the daily run retries remaining references.
+        for pid, refs in list(candidates.items())[:20]:
+            # Re-read the current parent status and retention before deleting.
+            parents = sorted({parent for _, parent, _, _, _ in refs})
+            current = _photo_purge_read('chamados_tickets', {
+                'id': 'in.(' + ','.join(parents) + ')',
+                'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
+            })
+            current_by_id = {t['id']: t for t in current}
+            if any(not _photo_purge_eligible(current_by_id.get(parent, {}), cutoff)
+                   or current_by_id[parent] != by_id[parent] for parent in parents):
+                failures += 1
+                continue
+            if _cloudinary_destroy(refs[0][0]):
+                removed.add(pid)
+            else:
+                failures += 1
+        updates = {}
+        for pid in removed:
+            for url, parent, table, row, original in candidates[pid]:
+                entry = updates.setdefault((table, row['id']), (parent, row, original, set()))
+                entry[3].add(url)
+        for (table, row_id), (parent, row, original, urls_removed) in updates.items():
+            field = 'photos' if table == 'chamados_tickets' else 'photo_urls'
+            params = {'id': 'eq.' + row_id, 'workspace_id': 'eq.' + row['workspace_id'],
+                      field: 'eq.' + original}
+            if table == 'chamados_tickets':
+                params['status'] = 'eq.' + row['status']
+                stamp = 'closedAt' if row['status'] == 'fechado' else 'updatedAt'
+                params[stamp] = 'eq.' + row[stamp]
+                value = ''
+            else:
+                params['ticket_id'] = 'eq.' + parent
+                value = json.dumps([u for u in json.loads(original) if u not in urls_removed], ensure_ascii=False)
+            response = requests.patch(
+                f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+                headers={**_supabase_headers(), 'Prefer': 'return=representation'},
+                json={field: value}, timeout=10,
+            )
+            if not response.ok or not response.json():
+                failures += 1
+                continue
+            result['tickets_cleared' if table == 'chamados_tickets' else 'events_cleared'] += 1
+        result['photos_deleted'] = len(removed)
+        result['failures'] = failures
+        result['remaining_candidates'] = len(candidates) - len(removed)
+        # Fail visibly so scheduled runs cannot report false success.
+        return jsonify(result), (503 if failures else 200)
+    except Exception as exc:
+        logger.warning('[photo-purge] failed: %s', type(exc).__name__)
+        return jsonify({'error': 'Photo cleanup incomplete'}), 503
 
 
 # ──────────────────────────────────────────────────────────────────────────────

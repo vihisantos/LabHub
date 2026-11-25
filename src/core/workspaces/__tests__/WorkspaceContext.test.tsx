@@ -362,4 +362,12 @@ describe('WorkspaceContext — storage hardening', () => {
     await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
     expect(localStorage.getItem('labhub_active_workspace')).toBe('ws-sjc')
   })
+
+  it('não interrompe a celebração na rota de aprovação com seleção multiunidade pendente', async () => {
+    mockUseAuth.mockReturnValue({ user: memberUser(['ws-sjc', 'ws-mooca']) })
+    renderProvider(['/approval-pending'])
+    await waitFor(() => expect(screen.getByTestId('probe').dataset.loading).toBe('false'))
+    expect(screen.getByTestId('probe').dataset.pending).toBe('true')
+    expect(mockGateProps.current).toBeNull()
+  })
 })

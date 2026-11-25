@@ -5,25 +5,11 @@ interface MovementEffects {
   updateItem: (id: string, patch: Partial<StockItem>) => void
 }
 
-function notifyLoan(payload: { itemName: string; borrowedBy: string; expectedReturnAt?: string }) {
-  fetch('/api/push/notify-loan', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-}
-
-function notifyReturn(payload: { itemName: string; returnedBy: string }) {
-  fetch('/api/push/notify-return', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch(() => {})
-}
-
 /**
  * Núcleo único para registrar um movimento: cria o registro, aplica o efeito
- * no item (status/sala) e dispara notificações quando aplicável.
+ * no item (status/sala). Push legado foi removido: disparos sem token,
+ * workspace ou confirmação de persistência eram descartados/arriscados.
+ * Avisos novos devem ser originados por evento persistido no backend.
  */
 export function applyMovementEffects(item: StockItem, data: StockMovementFormData, effects: MovementEffects) {
   effects.createMovement(data)
@@ -39,15 +25,9 @@ export function applyMovementEffects(item: StockItem, data: StockMovementFormDat
       break
     case 'emprestimo':
       effects.updateItem(item.id, { status: 'emprestado', room: data.destinationRoom || item.room })
-      notifyLoan({
-        itemName: item.name,
-        borrowedBy: data.borrowedBy || 'Alguém',
-        expectedReturnAt: data.expectedReturnAt || '',
-      })
       break
     case 'devolucao':
       effects.updateItem(item.id, { status: 'ativo' })
-      notifyReturn({ itemName: item.name, returnedBy: data.performedBy || 'Alguém' })
       break
     case 'entrada':
       if (data.toRoom && data.toRoom !== item.room) effects.updateItem(item.id, { room: data.toRoom })
