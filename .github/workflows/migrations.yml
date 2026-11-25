@@ -319,11 +319,23 @@ jobs:
             --health-passed true
 
       - name: Upload staging release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: staging-release-${{ github.sha }}
           path: staging-release.json
           retention-days: 7
+
+      - name: Verify staging attestation artifact round-trip in PR
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v8
+        with:
+          name: staging-release-${{ github.sha }}
+          path: .artifacts/roundtrip
+          digest-mismatch: error
+
+      - name: Compare downloaded attestation with original
+        if: github.event_name == 'pull_request'
+        run: cmp staging-release.json .artifacts/roundtrip/staging-release.json
 
       - name: Record successful PR staging verification
         if: github.event_name == 'pull_request'
@@ -388,7 +400,7 @@ jobs:
         run: pip install requests
 
       - name: Download staging attestation
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: staging-release-${{ github.sha }}
           path: .artifacts
@@ -433,7 +445,7 @@ jobs:
       # O artifact é relido aqui (não confiamos apenas no job de gate): a
       # barreira final roda no mesmo runner que executa o apply em produção.
       - name: Download staging attestation for final guard
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: staging-release-${{ github.sha }}
           path: .artifacts
