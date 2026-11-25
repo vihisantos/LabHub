@@ -30,6 +30,7 @@ def api_module():
 @pytest.fixture(autouse=True)
 def disable_inventory_slot_by_default(api_module, monkeypatch):
     monkeypatch.setattr(api_module, "due_inventory_check", lambda _: None)
+    monkeypatch.setenv("LABHUB_QSTASH_PERIODIC_ENABLED", "1")
 
 
 def test_signed_tick_verifies_body_signature_and_fixed_destination(api_module, monkeypatch):
@@ -881,3 +882,23 @@ def test_operational_push_isolation_across_two_campuses(api_module, monkeypatch)
         })
     send.assert_not_called()
 
+
+
+def test_disabled_periodic_body_only_recovers_critical_work(api_module, monkeypatch):
+    import notification_tick as tick
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.delenv("LABHUB_QSTASH_PERIODIC_ENABLED", raising=False)
+    monkeypatch.setattr(api_module, "_verify_qstash_tick", lambda *_: True)
+    worker = Mock(return_value=({"status": "ok"}, 200))
+    dispatch = Mock(return_value={"enabled": True})
+    monkeypatch.setattr(api_module, "_run_notification_worker", worker)
+    monkeypatch.setattr(api_module, "_drain_chamado_workflow_outbox", dispatch)
+    for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
+        monkeypatch.setattr(api_module, name, Mock(side_effect=AssertionError(name)))
+    response = api_module.app.test_client().post(TICK_PATH, data=tick.PERIODIC_BODY)
+    assert response.status_code == 200
+    assert "periodic" not in response.get_json()
+    worker.assert_called_once_with(5, 5)
+    dispatch.assert_called_once_with(limit=5)
+    for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
+        getattr(api_module, name).assert_not_called()
