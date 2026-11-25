@@ -29,6 +29,16 @@ def tick_destination():
     return f"https://{host}{TICK_PATH}"
 
 
+def periodic_producers_enabled() -> bool:
+    """One deployment-wide owner for scheduled notification producers.
+
+    Default is legacy until the QStash schedule is prepared. Preview requires
+    the existing trusted staging destination guard. Never switch on via a
+    caller-supplied parameter.
+    """
+    return os.environ.get("LABHUB_QSTASH_PERIODIC_ENABLED") == "1" and bool(tick_destination())
+
+
 def verify_signed_tick(body: bytes, signature: str, *, receiver_factory=None) -> bool:
     """Valida a assinatura QStash, payload fixo e URL oficial (fail-closed).
 
