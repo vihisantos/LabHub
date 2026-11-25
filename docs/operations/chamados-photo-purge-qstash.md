@@ -8,3 +8,7 @@ Existing GitHub schedule: 03:30 UTC / 00:30 America/Sao_Paulo. Keep it during th
 4. Only after the above verification remove the schedule stanza in .github/workflows/photos-cleanup.yml through a separate reviewed PR. Preserve workflow_dispatch as manual recovery. Rollback: restore legacy schedule first, disable flag and redeploy, pause QStash schedule. No orphan cleanup, changes to profile assets, or changes to the other QStash schedules.
 
 Lease TTL is 900 seconds; no cross-service transaction exists. Keep existing bounded batch and retention checks. First live scheduled execution and delivery logs must be monitored separately from HTTP unit tests.
+
+## Read budget
+
+Two paginated reads for an empty/small scan: nonempty ticket photo references, then nonempty/non-`[]` event photo references with embedded parent ticket via `ticket_events_ticket_id_fkey`. Do not filter by terminal status at the database level: active references must protect shared assets. Missing or inconsistent parent snapshots fail closed. Eligibility and pre-delete checks remain unchanged. `tickets_scanned` counts eligible referenced parents, not every terminal ticket. Additional reads and patches depend on eligible assets and page count.

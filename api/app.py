@@ -8510,14 +8510,29 @@ def _run_photo_purge(*, dry_run):
 def _photo_purge_impl(*, dry_run):
     cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     try:
+        # Fetch only photo-bearing records, regardless of status.
+        # An active ticket may share an asset with a closed one.
+        ticket_fields = 'id,workspace_id,status,closedAt,updatedAt,photos'
         tickets = _photo_purge_read('chamados_tickets', {
-            'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
+            'select': ticket_fields, 'photos': 'neq.',
         })
         events = _photo_purge_read('ticket_events', {
-            'select': 'id,ticket_id,workspace_id,photo_urls', 'photo_urls': 'neq.',
+            'select': 'id,ticket_id,workspace_id,photo_urls,'
+                      'parent:chamados_tickets!ticket_events_ticket_id_fkey(' + ticket_fields + ')',
+            'photo_urls': 'not.in.("","[]")',
         })
         by_id = {t['id']: t for t in tickets}
-        eligible = {t['id'] for t in tickets if _photo_purge_eligible(t, cutoff)}
+        for event in events:
+            # LEFT embedding preserves missing parents for fail-closed validation.
+            # Event-only attachments are included even without ticket photos.
+            parent = event.get('parent')
+            parent_id = event.get('ticket_id')
+            if not isinstance(parent, dict) or not parent_id or parent.get('id') != parent_id:
+                raise RuntimeError('photo event parent unavailable')
+            if parent_id in by_id and by_id[parent_id] != parent:
+                raise RuntimeError('photo reference changed during scan')
+            by_id[parent_id] = parent
+        eligible = {t['id'] for t in by_id.values() if _photo_purge_eligible(t, cutoff)}
         references = {}
         failures = 0
         def add(url, parent, table, row, original):
@@ -8527,7 +8542,7 @@ def _photo_purge_impl(*, dry_run):
             if not public_id or not re.fullmatch(r'chamados/[A-Za-z0-9_-]+', public_id):
                 return  # Never purge avatars, stock, other clouds or ambiguous URLs.
             references.setdefault(public_id, []).append((url, parent, table, row, original))
-        for t in tickets:
+        for t in by_id.values():
             add(t.get('photos'), t['id'], 'chamados_tickets', t, t.get('photos'))
         for e in events:
             raw = e.get('photo_urls')

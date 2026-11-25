@@ -1666,7 +1666,8 @@ def _purge_fixture(fake_requests, monkeypatch, api_module, *, status="fechado", 
                           closedAt="2026-06-20T12:00:00Z" if status == "fechado" else None,
                           updatedAt="2026-06-20T12:00:00Z", photos=url)
     events = [{"id": "ev-1", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
-               "photo_urls": json.dumps([url, second, "data:image/jpeg;base64,abc"])}]
+               "photo_urls": json.dumps([url, second, "data:image/jpeg;base64,abc"]),
+               "parent": ticket}]
     tickets = [ticket]
     if shared:
         tickets.append({**ticket, "id": "active-ticket", "status": "aberto"})
@@ -2168,7 +2169,7 @@ def test_purge_ambiguous_reference_blocks_all_deletions(client, fake_requests, a
     fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([ticket]))
     fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([{
         "id": "ev-1", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
-        "photo_urls": malformed,
+        "photo_urls": malformed, "parent": ticket,
     }]))
     destroy = Mock(return_value=True)
     monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
@@ -2176,3 +2177,84 @@ def test_purge_ambiguous_reference_blocks_all_deletions(client, fake_requests, a
     assert response.status_code == 503
     destroy.assert_not_called()
     assert not fake_requests.calls_for("PATCH", "/rest/v1/")
+
+
+def test_photo_purge_filters_empty_rows_and_keeps_two_reads_when_empty(client, fake_requests, api_module, monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.delenv("LABHUB_QSTASH_PHOTO_PURGE_ENABLED", raising=False)
+    response = client.post("/api/chamados/photos/purge", json={"dry_run": True},
+                           headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 200
+    assert response.get_json()["eligible_assets"] == 0
+    tickets = fake_requests.calls_for("GET", "/rest/v1/chamados_tickets")
+    events = fake_requests.calls_for("GET", "/rest/v1/ticket_events")
+    assert len(tickets) == len(events) == 1
+    assert tickets[0]["kwargs"]["params"]["photos"] == "neq."
+    assert events[0]["kwargs"]["params"]["photo_urls"] == 'not.in.("","[]")'
+    assert "parent:chamados_tickets!ticket_events_ticket_id_fkey(" in events[0]["kwargs"]["params"]["select"]
+    assert "status" not in tickets[0]["kwargs"]["params"]
+    assert not fake_requests.calls_for("PATCH", "/rest/v1/")
+
+
+@pytest.mark.parametrize("status,expected", [("fechado", 1), ("aberto", 0)])
+def test_photo_purge_includes_event_only_parent_without_ticket_photo(client, fake_requests, api_module, monkeypatch, status, expected):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    ticket = _make_ticket(status=status, closedAt="2026-06-20T12:00:00Z", photos="")
+    event = {"id": "ev-only", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
+             "photo_urls": json.dumps(["https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/only.jpg"]),
+             "parent": ticket}
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([]))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([event]))
+    destroy = Mock()
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
+    response = client.post("/api/chamados/photos/purge", json={"dry_run": True},
+                           headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 200
+    assert response.get_json()["eligible_assets"] == expected
+    destroy.assert_not_called()
+
+
+def test_photo_purge_active_event_only_parent_protects_shared_asset(client, fake_requests, api_module, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/shared.jpg"
+    closed = _make_ticket(status="fechado", closedAt="2026-06-20T12:00:00Z", photos=url)
+    active = {**closed, "id": "active", "status": "aberto", "photos": ""}
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([closed]))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([{
+        "id": "active-event", "ticket_id": active["id"], "workspace_id": active["workspace_id"],
+        "photo_urls": json.dumps([url]), "parent": active,
+    }]))
+    destroy = Mock()
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
+    response = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 200
+    assert response.get_json()["eligible_assets"] == 0
+    destroy.assert_not_called()
+
+
+@pytest.mark.parametrize("parent_mode", ["missing", "changed"])
+def test_photo_purge_parent_snapshot_mismatch_fails_closed(client, fake_requests, api_module, monkeypatch, parent_mode):
+    from unittest.mock import Mock
+    monkeypatch.setenv("CRON_SECRET", "super-secret")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("VITE_CLOUDINARY_CLOUD_NAME", "horytsxg")
+    url = "https://res.cloudinary.com/horytsxg/image/upload/v1/chamados/shared.jpg"
+    ticket = _make_ticket(status="fechado", closedAt="2026-06-20T12:00:00Z", photos=url)
+    parent = None if parent_mode == "missing" else {**ticket, "status": "aberto"}
+    fake_requests.route("GET", "/rest/v1/chamados_tickets", FakeResponse([ticket]))
+    fake_requests.route("GET", "/rest/v1/ticket_events", FakeResponse([{
+        "id": "event", "ticket_id": ticket["id"], "workspace_id": ticket["workspace_id"],
+        "photo_urls": json.dumps([url]), "parent": parent,
+    }]))
+    destroy = Mock()
+    monkeypatch.setattr(api_module, "_cloudinary_destroy", destroy)
+    response = client.post("/api/chamados/photos/purge", headers={"Authorization": "Bearer super-secret"})
+    assert response.status_code == 503
+    destroy.assert_not_called()
