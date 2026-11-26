@@ -41,3 +41,13 @@ export function readTicketCampus(ticketId: string): CampusArtworkKey | undefined
     return undefined
   }
 }
+
+const campusLabels: Record<CampusArtworkKey, string> = {
+  piracicaba: 'Anhembi Piracicaba',
+  mooca: 'Anhembi Mooca',
+  sjc: 'Anhembi São José',
+}
+
+export function campusArtworkLabel(campus?: CampusArtworkKey): string | undefined {
+  return campus ? campusLabels[campus] : undefined
+}

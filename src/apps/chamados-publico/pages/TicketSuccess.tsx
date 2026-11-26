@@ -9,7 +9,7 @@ import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
 import { CampusHero } from '../components/CampusBackdrop'
-import { readTicketCampus } from '../utils/campusArtwork'
+import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Aguardando técnico',
@@ -20,6 +20,16 @@ const STATUS_MESSAGES: Record<TicketStatus, string> = {
   indeferido: 'Chamado indeferido',
   fechado: 'Chamado concluído',
 }
+
+const STATUS_HERO = {
+  aberto: { title: 'Chamado enviado!', description: 'Seu chamado foi registrado. Ele está aguardando atendimento da equipe.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  a_caminho: { title: 'Técnico a caminho!', description: 'A equipe de TI está a caminho para atender você.', Icon: icons.ui.mapPin, color: 'bg-orange-500/15 text-orange-400' },
+  em_atendimento: { title: 'Estamos cuidando disso!', description: 'Seu chamado está em atendimento.', Icon: icons.nav.parts, color: 'bg-blue-500/15 text-blue-400' },
+  em_espera: { title: 'Atendimento em espera', description: 'Acompanhe as atualizações da equipe por aqui.', Icon: icons.ui.clock, color: 'bg-violet-500/15 text-violet-400' },
+  resolvido: { title: 'Problema resolvido!', description: 'A equipe marcou seu chamado como resolvido.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  fechado: { title: 'Chamado concluído!', description: 'O atendimento foi encerrado.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  indeferido: { title: 'CHAMADO INDEFERIDO', description: 'Este chamado não será atendido pela equipe de TI.', Icon: icons.ui.close, color: 'bg-red-500/15 text-red-500' },
+} satisfies Record<TicketStatus, { title: string; description: string; Icon: typeof icons.ui.checkCircle; color: string }>
 
 const POLL_INTERVAL_MS = 15000
 
@@ -306,6 +316,11 @@ export function TicketSuccess() {
 
   const statusMsg = statusMessage(ticket)
   const concluded = ticket.status === 'resolvido' || ticket.status === 'fechado'
+  const campus = readTicketCampus(ticket.id)
+  const campusName = campusArtworkLabel(campus)
+  const hero = STATUS_HERO[ticket.status] ?? STATUS_HERO.aberto
+  const StatusIcon = hero.Icon
+  const declined = ticket.status === 'indeferido'
 
   async function handleCopyNumber() {
     if (!ticket) return
@@ -321,26 +336,19 @@ export function TicketSuccess() {
 
   return (
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pb-8">
-      <CampusHero campus={readTicketCampus(ticket.id)} variant="success" className="-mx-5 self-stretch">
-        {ticket.status === 'indeferido' ? (
-          // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
-          // indeferimento, nunca apresentado como chamado resolvido.
-          <>
-            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-500/15">
-              <icons.ui.close size={40} className="text-red-500" />
-            </div>
-            <h1 className="campus-hero__title campus-hero__title--error text-2xl font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</h1>
-            <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">Este chamado não será atendido pela equipe de TI.</p>
-          </>
-        ) : (
-          <>
-            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
-              <icons.ui.checkCircle size={40} className="text-emerald-500" />
-            </div>
-
-            <h1 className="campus-hero__title text-2xl font-bold text-fg">Chamado enviado!</h1>
-            <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
-          </>
+      <CampusHero campus={campus} variant="success" className="-mx-5 self-stretch">
+        <div aria-live="polite" aria-atomic="true">
+          <div className={`mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full ${hero.color}`}>
+            <StatusIcon size={40} aria-hidden="true" />
+          </div>
+          <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{hero.title}</h1>
+          <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{hero.description}</p>
+        </div>
+        {campusName && (
+          <p className="campus-hero__subtitle mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-fg-muted">
+            <icons.ui.mapPin size={14} aria-hidden="true" />
+            {campusName}
+          </p>
         )}
       </CampusHero>
 
@@ -397,8 +405,8 @@ export function TicketSuccess() {
         </div>
 
         <div className="mt-3">
-          {ticket.status === 'indeferido' ? (
-            // Issue #367 — motivo estruturado + observação do indeferimento.
+          {ticket.status === 'indeferido' || ticket.status === 'em_espera' ? (
+            // Motivo estruturado e observação de espera/indeferimento.
             <div className="space-y-2">
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
@@ -406,11 +414,12 @@ export function TicketSuccess() {
                 {TICKET_STATUS_LABELS[ticket.status]}
               </span>
               {ticket.reasonLabel && (
-                <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-600 dark:text-red-400">
+                <p className={`rounded-lg px-3 py-2 text-xs font-semibold ${declined ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-violet-500/10 text-violet-600 dark:text-violet-400'}`}>
                   Motivo: {ticket.reasonLabel}
                 </p>
               )}
               {ticket.reasonNote && <p className="text-xs text-fg-muted">{ticket.reasonNote}</p>}
+              {!ticket.reasonLabel && !ticket.reasonNote && statusMsg && <p className="text-sm font-medium text-fg">{statusMsg}</p>}
             </div>
           ) : (
             <>
@@ -434,7 +443,7 @@ export function TicketSuccess() {
         </p>
       </div>
 
-      {isPushSupported() && !concluded && !isLoggedIn && (
+      {isPushSupported() && !concluded && !declined && !isLoggedIn && (
         <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
           {pushState === 'on' ? (
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -462,22 +471,32 @@ export function TicketSuccess() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => navigate('/chamados-publico/track')}
-        className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium transition-colors hover:bg-input"
-      >
-        <icons.ui.circleCheck size={18} className="text-emerald-500" />
-        Acompanhar e avaliar depois
-      </button>
+      {concluded && !ticket.feedbackRating && !ratingDone && (
+        <button
+          type="button"
+          onClick={() => setShowRatingModal(true)}
+          className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium text-fg transition-colors hover:bg-input"
+        >
+          <icons.ui.star size={18} className="text-amber-500" />
+          Avaliar atendimento
+        </button>
+      )}
 
       <button
         type="button"
         onClick={() => navigate('/chamados-publico')}
-        className="mt-8 flex items-center gap-2 rounded-xl bg-card px-6 py-3 text-sm font-medium shadow-[var(--shadow-card)] transition-colors hover:bg-input"
+        className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-line px-5 py-2.5 text-sm font-medium text-fg-muted transition-colors hover:bg-input hover:text-fg"
       >
-        <icons.ui.scanBarcode size={18} />
-        {ticket.assetName ? 'Escanear outro QR' : 'Abrir outro chamado'}
+        <icons.ui.plus size={18} />
+        Abrir outro chamado
+      </button>
+
+      <button
+        type="button"
+        onClick={() => navigate('/chamados-publico/track')}
+        className="mt-3 text-xs text-fg-muted underline-offset-4 hover:underline"
+      >
+        Consultar outros chamados
       </button>
 
       {showRatingModal && (

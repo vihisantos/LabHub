@@ -74,6 +74,7 @@ function renderSuccess() {
 beforeEach(() => {
   vi.clearAllMocks()
   authState.user = null
+  sessionStorage.clear()
   vi.stubGlobal('Notification', {
     permission: 'default',
     requestPermission: vi.fn().mockResolvedValue('default'),
@@ -91,6 +92,19 @@ afterEach(() => {
 })
 
 describe('TicketSuccess', () => {
+  it('mostra campus da sessão e estado real de espera', async () => {
+    sessionStorage.setItem('labhub:campus-artwork:t-1', 'piracicaba')
+    const ticket = makeTicket({ status: 'em_espera', reasonLabel: 'Aguardando peça' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.getByText('Anhembi Piracicaba')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Atendimento em espera' })).toBeInTheDocument()
+    expect(screen.getByText('Motivo: Aguardando peça')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avaliar atendimento' })).not.toBeInTheDocument()
+  })
+
   it('chamado não encontrado mostra erro', async () => {
     mockGetById.mockReturnValue(null)
     mockGetByToken.mockRejectedValue(new Error('não encontrado'))
@@ -111,7 +125,9 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('PC-01')).toBeInTheDocument()
     expect(screen.getByText('Aberto')).toBeInTheDocument()
     expect(screen.getByText('Atualiza automaticamente')).toBeInTheDocument()
-    expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+    expect(screen.queryByText('Acompanhar e avaliar depois')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir outro chamado' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar outros chamados' })).toBeInTheDocument()
   })
 
   it('busca o status pelo token (polling) e atualiza ao vivo', async () => {
@@ -123,6 +139,7 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(mockGetByToken).toHaveBeenCalledWith('tok')
+    expect(screen.getByRole('heading', { name: 'Estamos cuidando disso!' })).toBeInTheDocument()
     expect(screen.getByText('Em atendimento')).toBeInTheDocument()
     expect(screen.getByText('Técnico a caminho')).toBeInTheDocument()
   })
@@ -145,6 +162,8 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(screen.getByText('Seu chamado foi concluído. Obrigado!')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Problema resolvido!' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Avaliar atendimento' })).toBeInTheDocument()
   })
 
   it('(A) Notification indisponível — renderiza sem crash', async () => {
@@ -267,12 +286,14 @@ describe('TicketSuccess', () => {
     delete (window as unknown as Record<string, unknown>).PushManager
   })
 
-  it('(H) Navegação pós-criação funciona — botão de acompanhar está visível', async () => {
+  it('(H) Navegação pós-criação oferece ações secundárias sem duplicar acompanhamento', async () => {
     mockGetById.mockReturnValue(makeTicket())
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+    expect(screen.queryByText('Acompanhar e avaliar depois')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir outro chamado' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar outros chamados' })).toBeInTheDocument()
   })
 
   it('logado não vê o botão "notificação deste chamado" (recebe pela inscrição de app)', async () => {
