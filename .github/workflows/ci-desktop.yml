@@ -9,20 +9,6 @@ name: CI Desktop (Tauri 2)
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src-tauri/**'
-      - 'src/tv-desktop/**'
-      - 'src/apps/tv/**'
-      - 'src/lib/localStore.ts'
-      - 'src/lib/useRealtimeSubscription.ts'
-      - 'src/core/workspaces/**'
-      - 'desktop.html'
-      - 'vite.desktop.config.ts'
-      - 'vite.config.ts'
-      - 'tsconfig*.json'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/ci-desktop.yml'
 
 concurrency:
   group: ci-desktop-${{ github.workflow }}-${{ github.ref }}
@@ -32,8 +18,33 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    name: Determine desktop validation scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Test desktop scope classifier
+        run: python -m unittest discover -s scripts/tests -p test_desktop_scope.py -v
+      - name: Classify PR changes
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/ci/desktop_scope.py
+
   tauri-windows:
     name: Tauri 2 checks (Windows)
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -121,3 +132,22 @@ jobs:
             throw 'O bundle desktop reintroduziu integracoes legadas'
           }
           Write-Host 'Desktop renderer bundle clean.'
+
+  desktop-gate:
+    name: Desktop CI gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [scope, tauri-windows]
+    if: always()
+    steps:
+      - name: Enforce desktop validation result
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          DESKTOP_REQUIRED: ${{ needs.scope.outputs.required }}
+          WINDOWS_RESULT: ${{ needs.tauri-windows.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          case "$DESKTOP_REQUIRED:$WINDOWS_RESULT" in
+            true:success|false:skipped) echo "Desktop validation gate passed" ;;
+            *) echo "Invalid desktop validation outcome" >&2; exit 1 ;;
+          esac
