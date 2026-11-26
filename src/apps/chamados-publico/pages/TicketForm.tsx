@@ -4,6 +4,8 @@ import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
+import { CampusBackdrop } from '../components/CampusBackdrop'
+import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
@@ -139,6 +141,7 @@ export function TicketForm() {
       } catch {
         // Storage indisponível — token segue apenas na URL.
       }
+      rememberTicketCampus(ticket.id, campusArtworkKey(workspaces.find((w) => w.id === campusId)?.name))
       navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch {
       setSubmitError('Não foi possível abrir o chamado. Verifique sua conexão e tente novamente.')
@@ -186,7 +189,8 @@ export function TicketForm() {
   }
 
   return (
-    <div className="min-h-dvh bg-surface px-4 pt-6 pb-8">
+    <div className="relative isolate min-h-dvh bg-surface px-4 pt-6 pb-8">
+      <CampusBackdrop campus={campusArtworkKey(workspaces.find((w) => w.id === campusId)?.name)} />
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
       </div>

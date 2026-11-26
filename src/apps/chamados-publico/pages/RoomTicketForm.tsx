@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
+import { CampusBackdrop } from '../components/CampusBackdrop'
+import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
 import { useAuth } from '../../../core/auth/useAuth'
 import { ticketService } from '../../chamados/services/ticketService'
 import { roomService } from '../../chamados/services/roomService'
@@ -236,6 +238,7 @@ export function RoomTicketForm() {
       // O tracking token é a credencial do professor (acesso ao próprio chamado).
       // Persistimos para conveniência e passamos pela URL para o success page.
       safeLocalStorageSet(`chamado_token_${ticket.id}`, trackingToken)
+      rememberTicketCampus(ticket.id, campusArtworkKey(campus?.name))
       navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch (err) {
       setSubmitting(false)
@@ -267,7 +270,8 @@ export function RoomTicketForm() {
   }
 
   return (
-    <div className="min-h-dvh bg-surface px-4 pt-6 pb-10">
+    <div className="relative isolate min-h-dvh bg-surface px-4 pt-6 pb-10">
+      <CampusBackdrop campus={campusArtworkKey(campus?.name)} />
       <div className="mb-6 text-center">
         <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
         <p className="mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>

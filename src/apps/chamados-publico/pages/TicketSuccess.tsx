@@ -8,6 +8,8 @@ import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
+import { CampusBackdrop } from '../components/CampusBackdrop'
+import { readTicketCampus } from '../utils/campusArtwork'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Aguardando técnico',
@@ -318,7 +320,8 @@ export function TicketSuccess() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
+    <div className="relative isolate flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
+      <CampusBackdrop campus={readTicketCampus(ticket.id)} variant="success" />
       {ticket.status === 'indeferido' ? (
         // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
         // indeferimento, nunca apresentado como chamado resolvido.

@@ -1,0 +1,33 @@
+.campus-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.campus-backdrop__image {
+  display: block;
+  width: 100%;
+  height: 100dvh;
+  max-height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0.22;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 60%, transparent 100%);
+  animation: campus-artwork-in 320ms ease-out both;
+}
+.campus-backdrop--success .campus-backdrop__image {
+  opacity: 0.36;
+}
+.dark .campus-backdrop__image {
+  opacity: 0.16;
+}
+.dark .campus-backdrop--success .campus-backdrop__image {
+  opacity: 0.26;
+}
+@keyframes campus-artwork-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .campus-backdrop__image { animation: none; }
+}
