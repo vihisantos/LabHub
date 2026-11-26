@@ -16,12 +16,14 @@ export function TicketOpenedAt({ createdAt, elapsed, prominent = false }: {
   const date = createdAt ? new Date(createdAt) : null
   const valid = date !== null && Number.isFinite(date.getTime())
   return (
-    <div className="mt-3 flex items-start gap-3 rounded-xl border border-line bg-surface p-3">
-      <icons.ui.calendar size={20} className="mt-0.5 shrink-0 text-emerald-500" aria-hidden="true" />
+    <div className="mt-3 border-t border-line pt-3">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-fg">Data e horário de abertura</p>
+        <p className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+          <icons.ui.clock size={14} className="shrink-0" aria-hidden="true" />
+          Data e horário de abertura
+        </p>
         {valid && date ? (
-          <time dateTime={date.toISOString()} className={`mt-1 block font-bold tabular-nums text-fg ${prominent ? 'text-lg' : 'text-base'}`}>
+          <time dateTime={date.toISOString()} className={`mt-1 block font-semibold tabular-nums text-fg ${prominent ? 'text-base' : 'text-sm'}`}>
             {dateFormat.format(date)} às {timeFormat.format(date)}
           </time>
         ) : (
