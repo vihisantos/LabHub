@@ -10,6 +10,7 @@ import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
 import { CampusHero } from '../components/CampusBackdrop'
 import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
+import './TicketSuccess.css'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Aguardando técnico',
@@ -372,11 +373,15 @@ export function TicketSuccess() {
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pb-8">
       <CampusHero campus={campus} variant="success" className="-mx-5 self-stretch">
         <div aria-live="polite" aria-atomic="true">
-          <div className={`mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full ${hero.color}`}>
-            <StatusIcon size={40} aria-hidden="true" />
+          <div key={ticket.status} className="ticket-status-hero">
+            <div className={`ticket-status-icon mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full ${hero.color}`}>
+              <StatusIcon size={40} aria-hidden="true" />
+            </div>
+            <div className="ticket-status-copy">
+              <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{heroTitle}</h1>
+              <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{heroDescription}</p>
+            </div>
           </div>
-          <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{heroTitle}</h1>
-          <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{heroDescription}</p>
         </div>
         {campusName && (
           <p className="campus-hero__subtitle mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-fg-muted">
@@ -437,7 +442,7 @@ export function TicketSuccess() {
           <span className="flex items-center gap-1.5 text-[10px] text-fg-dim">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                offline ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'
+                offline ? 'bg-red-500' : 'bg-emerald-500 motion-safe:animate-pulse'
               }`}
             />
             {offline ? 'Sem conexão — tenta de novo automaticamente' : 'Atualiza automaticamente'}
@@ -449,7 +454,7 @@ export function TicketSuccess() {
             {steps.map((step, index) => (
               <li key={step.label} aria-current={step.current ? 'step' : undefined} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
                 {index > 0 && <span aria-hidden="true" className="absolute right-1/2 top-3 h-px w-full bg-line" />}
-                <span className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full border ${step.current || index === 0 ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-line bg-card text-fg-muted'}`}>
+                <span className={`ticket-status-step relative z-10 flex h-6 w-6 items-center justify-center rounded-full border ${step.current ? 'ticket-status-step--current' : ''} ${step.current || index === 0 ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-line bg-card text-fg-muted'}`}>
                   {index === 0 ? <icons.ui.check size={13} aria-hidden="true" /> : <span className="text-[10px]">{index + 1}</span>}
                 </span>
                 <span className={`text-[10px] leading-tight ${step.current ? 'font-semibold text-fg' : 'text-fg-muted'}`}>{step.label}</span>
@@ -458,7 +463,7 @@ export function TicketSuccess() {
           </ol>
         )}
 
-        <div className="mt-3">
+        <div key={ticket.status} className="ticket-status-details mt-3">
           {ticket.status === 'indeferido' || ticket.status === 'em_espera' ? (
             // Motivo estruturado e observação de espera/indeferimento.
             <div className="space-y-2">

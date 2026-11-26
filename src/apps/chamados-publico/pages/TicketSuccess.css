@@ -1,0 +1,40 @@
+/* Only the status-dependent content is keyed; polling the same status
+   keeps these elements mounted and does not replay the entrance. */
+.ticket-status-icon {
+  animation: ticket-icon-in 400ms cubic-bezier(.2, .8, .25, 1) both;
+}
+.ticket-status-copy {
+  animation: ticket-copy-in 300ms ease-out both;
+}
+.ticket-status-details {
+  animation: ticket-copy-in 260ms ease-out both;
+}
+.ticket-status-step {
+  transition: background-color 240ms ease, border-color 240ms ease, color 240ms ease;
+}
+.ticket-status-step--current {
+  animation: ticket-step-in 360ms ease-out both;
+}
+@keyframes ticket-icon-in {
+  0% { opacity: .55; transform: scale(.86); }
+  65% { opacity: 1; transform: scale(1.055); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ticket-copy-in {
+  from { opacity: .55; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ticket-step-in {
+  0% { transform: scale(.92); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticket-status-icon,
+  .ticket-status-copy,
+  .ticket-status-details,
+  .ticket-status-step {
+    animation: none;
+    transition: none;
+  }
+}

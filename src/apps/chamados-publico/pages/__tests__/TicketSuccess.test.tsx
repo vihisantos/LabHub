@@ -179,6 +179,42 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Atendimento').closest('li')).not.toHaveAttribute('aria-current')
   })
 
+  it('reinicia a animação apenas quando o status muda, preservando o banner e os detalhes', async () => {
+    vi.useFakeTimers()
+    try {
+      sessionStorage.setItem('labhub:campus-artwork:t-1', 'piracicaba')
+      mockGetById.mockReturnValue(makeTicket())
+      const { container, unmount } = renderSuccess()
+      try {
+        await act(async () => {})
+        const initialHero = container.querySelector('.ticket-status-hero')
+        const initialStatus = container.querySelector('.ticket-status-details')
+        const artwork = container.querySelector('.campus-backdrop__image')
+        const description = screen.getByText('Sem conexão')
+        expect(initialHero).toBeTruthy()
+        expect(initialStatus).toBeTruthy()
+        expect(artwork).toBeTruthy()
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+        expect(container.querySelector('.ticket-status-hero')).toBe(initialHero)
+        expect(container.querySelector('.ticket-status-details')).toBe(initialStatus)
+
+        mockGetByToken.mockResolvedValue(makeTicket({ status: 'a_caminho', assignedTo: 'Ana' }))
+        await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+        expect(screen.getByRole('heading', { name: 'Técnico Ana está a caminho!' })).toBeInTheDocument()
+        expect(container.querySelector('.ticket-status-hero')).not.toBe(initialHero)
+        expect(container.querySelector('.ticket-status-details')).not.toBe(initialStatus)
+        expect(screen.getByText('Deslocamento').closest('li')?.querySelector('.ticket-status-step--current')).toBeTruthy()
+        expect(container.querySelector('.campus-backdrop__image')).toBe(artwork)
+        expect(screen.getByText('Sem conexão')).toBe(description)
+      } finally {
+        unmount()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('indica ausência de conexão quando o polling falha', async () => {
     mockGetById.mockReturnValue(makeTicket())
     mockGetByToken.mockRejectedValue(new Error('offline'))
