@@ -5,7 +5,18 @@ import sjc from '../assets/campuses/sjc.svg'
 import type { CampusArtworkKey } from '../utils/campusArtwork'
 import './CampusBackdrop.css'
 
-const artwork: Record<CampusArtworkKey, string> = { piracicaba, mooca, sjc }
+// Prefer optimized photographs when present; keep SVG fallbacks during migration.
+const optimized = import.meta.glob<string>('../assets/campuses/*.webp', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+})
+
+const artwork: Record<CampusArtworkKey, string> = {
+  piracicaba: optimized['../assets/campuses/piracicaba.webp'] ?? piracicaba,
+  mooca: optimized['../assets/campuses/mooca.webp'] ?? mooca,
+  sjc: optimized['../assets/campuses/sjc.webp'] ?? sjc,
+}
 
 export function CampusBackdrop({
   campus,
