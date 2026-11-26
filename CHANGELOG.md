@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
-### Features — 2026-11-26
+### Docs
+
+* **rbac2:** Etapa 7 atualizada com status pós-ativação e limitação documentada da auditoria específica.
+
+## [2.5.0] (2026-11-26)
+
+### Features
 
 * **chamados-publico:** reformula a abertura por sala e equipamento e a confirmação com banners por campus, degradês, suporte a temas e fallback visual para unidades sem arte ([#542](https://github.com/vihisantos/LabHub/pull/542)).
 * **chamados-publico:** cabeçalho dinâmico com status, nome de exibição do técnico responsável quando disponível, etapas do atendimento, motivos de espera/indeferimento e transições de estado com movimento reduzido.
@@ -32,10 +38,6 @@
 ### Known limitations
 
 * **chamados-publico:** histórico local depende do navegador; identidade visual do campus pode não acompanhar o link em outro dispositivo, pois a projeção pública não retorna o workspace.
-
-### Docs
-
-* **rbac2:** Etapa 7 atualizada com status pós-ativação e limitação documentada da auditoria específica.
 
 ## [2.4.0] (2026-11-10)
 

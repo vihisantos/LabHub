@@ -18,7 +18,7 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
-    version: 'v2.4.0 · 26/11',
+    version: 'v2.5.0',
     date: '26 de novembro de 2026',
     title: 'Uma nova experiência para abrir e acompanhar chamados',
     bugs: [
