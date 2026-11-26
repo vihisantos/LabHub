@@ -671,6 +671,7 @@ def test_tablet_revalidation_failure_retries_without_sending(api_module, monkeyp
 
 
 def test_periodic_bell_is_persisted_without_push_subscription(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "revalidate_inventory_event", Mock(return_value=("Validade", "Item")))
     monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
     monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
     post = Mock(return_value=Mock(ok=True))
@@ -902,3 +903,45 @@ def test_disabled_periodic_body_only_recovers_critical_work(api_module, monkeypa
     dispatch.assert_called_once_with(limit=5)
     for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
         getattr(api_module, name).assert_not_called()
+
+
+def test_inventory_worker_does_not_deliver_obsolete_event(api_module, monkeypatch):
+    monkeypatch.setattr(api_module, "_target_subs", Mock(return_value=[]))
+    monkeypatch.setattr(api_module, "revalidate_inventory_event", Mock(return_value=None))
+    persist = Mock()
+    monkeypatch.setattr(api_module, "_persist_periodic_bell", persist)
+    assert api_module._deliver_outbox_notification("old", {
+        "module": "stock", "context": "overdue", "workspace_id": "ws-a",
+        "persist_inapp": True, "inventory_id": "item",
+    })
+    persist.assert_not_called()
+
+
+def test_inventory_lease_prevents_concurrent_scan(api_module, monkeypatch):
+    redis = Mock()
+    redis.set.return_value = None
+    monkeypatch.setattr(api_module, "redis", redis)
+    scan = Mock()
+    monkeypatch.setattr(api_module, "run_inventory_check", scan)
+    result = api_module._periodic_inventory_check("stock-loans", None)
+    assert result["skipped"] == "inventory_lease_held"
+    scan.assert_not_called()
+    redis.get.assert_not_called()
+    redis.eval.assert_not_called()
+
+
+def test_inventory_lost_lease_cannot_advance_cursor(api_module, monkeypatch):
+    redis = Mock()
+    redis.set.return_value = "OK"
+    redis.get.return_value = None
+    redis.eval.return_value = 0
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setattr(api_module, "redis", redis)
+    monkeypatch.setattr(api_module, "run_inventory_check", Mock(return_value={
+        "next_cursor": "b394e6e1-b6e8-442c-aa99-c76c37ec3303", "queued": 1,
+    }))
+    with pytest.raises(RuntimeError, match="lease lost"):
+        api_module._periodic_inventory_check("stock-loans", None)
+    assert redis.eval.call_count == 2
+    assert all(key.startswith("labhub:staging:") for key in redis.eval.call_args_list[0].args[1])
+    redis.delete.assert_not_called()

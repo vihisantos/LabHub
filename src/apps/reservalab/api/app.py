@@ -1651,7 +1651,7 @@ def _queue_push_event(
     event_id, title, body, *, module, workspace_id=None, user_id=None,
     role=None, min_level=None, target_super_admin=None, url='/', ttl=86400,
     context=None, actions=None, expires_at=None, reservation_id=None, persist_inapp=False,
-    exclude_user_id=None,
+    exclude_user_id=None, inventory_id=None,
 ):
     """Registra evento Push no outbox; None indica fallback legado seguro."""
     if not pg_store.is_configured():
@@ -1678,6 +1678,8 @@ def _queue_push_event(
         payload['reservation_id'] = str(reservation_id)
     if persist_inapp:
         payload['persist_inapp'] = True
+    if inventory_id is not None:
+        payload['inventory_id'] = str(inventory_id)
     try:
         inserted = pg_store.store.notification_outbox_enqueue(
             str(event_id), None, payload,

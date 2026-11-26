@@ -58,7 +58,8 @@ from rbac import (
     record_rbac_audit as rbac_record_audit,
 )
 import pg_store
-from notification_periodic import due_inventory_check, run_inventory_check
+from notification_periodic import (due_inventory_check, run_inventory_check,
+                                   revalidate_inventory_event, INVENTORY_CONTEXTS)
 from notification_queue import NotificationQueue
 from notification_dispatcher import publish_pending, process_pending
 from notification_tick import (
@@ -6842,6 +6843,15 @@ def _deliver_outbox_notification(event_id, payload, *, lab_snapshots=None):
         ]
 
     if payload.get('persist_inapp') is True:
+        if (module, context) in INVENTORY_CONTEXTS:
+            current = revalidate_inventory_event(
+                event_id, payload, datetime.now(timezone(timedelta(hours=-3))),
+                read=_inventory_read,
+            )
+            if current is None:
+                return True  # resolved, transferred or obsolete
+            title, message = current
+            title, message = title[:160], message[:2000]
         _persist_periodic_bell(event_id, payload, title, message, action_url)
 
     if not subs:
@@ -6921,36 +6931,57 @@ def notifications_worker():
     return jsonify(result), code
 
 
+def _inventory_read(schema, table, params):
+    if not _require_supabase():
+        raise RuntimeError('inventory database unavailable')
+    resp = requests.get(
+        f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
+        headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
+    )
+    if not resp.ok:
+        raise RuntimeError('inventory read failed')
+    return resp.json()
+
+
 def _periodic_inventory_check(kind, now):
-    def read(schema, table, params):
-        if not _require_supabase():
-            raise RuntimeError('inventory database unavailable')
-        resp = requests.get(
-            f'{_SUPABASE_URL}/rest/v1/{table}', params=params,
-            headers={**_supabase_headers(), 'Accept-Profile': schema}, timeout=6,
-        )
-        if not resp.ok:
-            raise RuntimeError('inventory read failed')
-        return resp.json()
     def enqueue(*args, **kwargs):
         return _queue_push_event(*args, **kwargs, persist_inapp=True)
     if redis is None:
         raise RuntimeError('inventory continuation store unavailable')
     prefix = 'labhub:staging:' if os.environ.get('VERCEL_ENV') == 'preview' else 'labhub:'
     key = prefix + 'notifications:inventory-cursor:v1:' + kind
-    cursor = redis.get(key)
-    if cursor:
-        cursor = str(uuid.UUID(str(cursor)))
-    result = run_inventory_check(kind, now, read=read, enqueue=enqueue, cursor=cursor)
-    if 'next_cursor' in result:
-        next_cursor = result.pop('next_cursor')
-        if next_cursor:
-            next_cursor = str(uuid.UUID(next_cursor))
-            if redis.set(key, next_cursor, ex=604800) != 'OK':
-                raise RuntimeError('inventory continuation write failed')
-        elif cursor:
-            redis.delete(key)
-    return result
+    lock_key = key + ':lease'
+    owner = uuid.uuid4().hex
+    acquired = redis.set(lock_key, owner, ex=300, nx=True)
+    if acquired is None:
+        return {'checked': False, 'skipped': 'inventory_lease_held', 'queued': 0}
+    if acquired != 'OK':
+        raise RuntimeError('inventory lease acquisition failed')
+    try:
+        cursor = redis.get(key)
+        if cursor:
+            cursor = str(uuid.UUID(str(cursor)))
+        result = run_inventory_check(kind, now, read=_inventory_read, enqueue=enqueue, cursor=cursor)
+        if 'next_cursor' in result:
+            next_cursor = result.pop('next_cursor')
+            next_cursor = str(uuid.UUID(next_cursor)) if next_cursor else ''
+            # A worker whose lease expired cannot overwrite its successor.
+            committed = redis.eval(
+                "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end "
+                "if ARGV[2] == '' then redis.call('DEL', KEYS[2]) "
+                "else redis.call('SET', KEYS[2], ARGV[2], 'EX', 604800) end return 1",
+                [lock_key, key], [owner, next_cursor],
+            )
+            if committed != 1:
+                raise RuntimeError('inventory continuation lease lost')
+        return result
+    finally:
+        # Never delete a lease acquired by another worker after our expiry.
+        redis.eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+            "return redis.call('DEL', KEYS[1]) end return 0",
+            [lock_key], [owner],
+        )
 
 
 @_route_once(_QSTASH_TICK_PATH, methods=['POST'])

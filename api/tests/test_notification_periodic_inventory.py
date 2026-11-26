@@ -80,3 +80,27 @@ def test_failed_enqueue_preserves_inventory_cursor(monkeypatch):
     ]), enqueue=Mock(return_value=None))
     assert result["next_cursor"] == "part-0"
     assert result["complete"] is False and result["failures"] == 1
+
+
+def test_revalidate_inventory_uses_same_identity_and_fresh_scope():
+    from notification_periodic import revalidate_inventory_event
+    item = "b394e6e1-b6e8-442c-aa99-c76c37ec3303"
+    workspace = "839ebf30-bbdf-46b7-859b-bffaf8c21f37"
+    row = {"id": item, "workspace_id": workspace, "name": "Peça",
+           "quantity": 1, "minQuantity": 5}
+    enqueue = Mock(return_value="queued")
+    run_inventory_check("pcare-parts", NOW, read=Mock(return_value=[row]), enqueue=enqueue)
+    event_id = enqueue.call_args.args[0]
+    payload = {**enqueue.call_args.kwargs}
+    read = Mock(return_value=[row])
+    assert revalidate_inventory_event(event_id, payload, NOW, read=read) == (
+        "Estoque baixo: Peça", "Quantidade: 1 | Mínimo: 5")
+    assert read.call_args.args[2]["id"] == "eq." + item
+    assert read.call_args.args[2]["workspace_id"] == "eq." + workspace
+    read.return_value = [{**row, "quantity": 5}]
+    assert revalidate_inventory_event(event_id, payload, NOW, read=read) is None
+    read.return_value = []
+    assert revalidate_inventory_event(event_id, payload, NOW, read=read) is None
+    read.return_value = [{**row, "workspace_id": item}]
+    with pytest.raises(RuntimeError, match="scope mismatch"):
+        revalidate_inventory_event(event_id, payload, NOW, read=read)
