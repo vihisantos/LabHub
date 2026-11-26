@@ -56,5 +56,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest
 
+      - name: Verify feedback and tracking tests in isolation and both orders (#376)
+        run: |
+          python -m pytest api/tests/test_chamados_feedback_authenticated.py -q
+          python -m pytest api/tests/test_tracking_token.py -q
+          python -m pytest api/tests/test_chamados_feedback_authenticated.py api/tests/test_tracking_token.py -q
+          python -m pytest api/tests/test_tracking_token.py api/tests/test_chamados_feedback_authenticated.py -q
+
       - name: Run api/tests
         run: python -m pytest api/tests -q

@@ -21,15 +21,13 @@ quando a resposta é de erro.
 import base64
 import hashlib
 import hmac
-import importlib.util
 import json
 import sys
 import time
-from pathlib import Path
 
 import pytest
 
-API_FILE = Path(__file__).resolve().parents[1] / "app.py"
+from root_api_fixture import load_root_api
 SUPABASE_URL = "https://test.supabase.co"
 SUPABASE_SERVICE_KEY = "test-service-key"
 SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
@@ -120,19 +118,7 @@ class FakeRequests:
 
 @pytest.fixture(scope="session")
 def api_module():
-    target = API_FILE.resolve()
-    for _name, mod in list(sys.modules.items()):
-        if getattr(mod, "app", None) is None:
-            continue
-        f = getattr(mod, "__file__", None)
-        if f and Path(f).resolve() == target:
-            return mod
-    key = "chamados_feedback_authenticated_api"
-    spec = importlib.util.spec_from_file_location(key, API_FILE)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_root_api()
 
 
 @pytest.fixture()

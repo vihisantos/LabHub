@@ -5,7 +5,6 @@ aleatória, somente o hash SHA-256 é armazenado, e o acesso fica limitado a UM
 único chamado via endpoints /api/public/chamados/<token>. O RLS permanece
 fechado; o backend Flask é a única porta pública.
 """
-import importlib.util
 import base64
 import hashlib
 import hmac
@@ -19,7 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pg_store_fakes import PgStoreFakeMixin
 
-API_FILE = Path(__file__).resolve().parents[1] / "app.py"
+from root_api_fixture import load_root_api
 
 SUPABASE_URL = "https://test.supabase.co"
 SUPABASE_JWT_SECRET = "test-jwt-secret-for-testing-only-32chars!!"
@@ -129,15 +128,7 @@ class FakeRedis(PgStoreFakeMixin):
 
 @pytest.fixture(scope="session")
 def api_module():
-    for existing in ("chamados_api", "root_api"):
-        if existing in sys.modules and getattr(sys.modules[existing], "app", None) is not None:
-            if Path(getattr(sys.modules[existing], "__file__", "")) == API_FILE:
-                return sys.modules[existing]
-    spec = importlib.util.spec_from_file_location("chamados_api", API_FILE)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["chamados_api"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_root_api()
 
 
 @pytest.fixture()
