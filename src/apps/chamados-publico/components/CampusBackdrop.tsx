@@ -1,21 +1,18 @@
 import type { ReactNode } from 'react'
-import piracicaba from '../assets/campuses/piracicaba.svg'
-import mooca from '../assets/campuses/mooca.svg'
-import sjc from '../assets/campuses/sjc.svg'
+import piracicabaUrl from '../assets/campuses/piracicaba.webp?url'
+import moocaUrl from '../assets/campuses/mooca.webp?url'
+import sjcUrl from '../assets/campuses/sjc.webp?url'
 import type { CampusArtworkKey } from '../utils/campusArtwork'
 import './CampusBackdrop.css'
 
-// Prefer optimized photographs when present; keep SVG fallbacks during migration.
-const optimized = import.meta.glob<string>('../assets/campuses/*.webp', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-})
-
+// Static URL imports: Vite emits each WebP as a separate hashed asset and
+// includes them in the Workbox precache manifest automatically.
+// The browser only downloads the image when the corresponding <img> is rendered
+// (i.e. when the matching campus is selected), so network cost is deferred.
 const artwork: Record<CampusArtworkKey, string> = {
-  piracicaba: optimized['../assets/campuses/piracicaba.webp'] ?? piracicaba,
-  mooca: optimized['../assets/campuses/mooca.webp'] ?? mooca,
-  sjc: optimized['../assets/campuses/sjc.webp'] ?? sjc,
+  piracicaba: piracicabaUrl,
+  mooca: moocaUrl,
+  sjc: sjcUrl,
 }
 
 export function CampusBackdrop({
