@@ -69,6 +69,10 @@ from notification_tick import (
     verify_signed_tick as _verify_qstash_tick,
     request_tick_for_created_ticket as _request_tick_for_created_ticket,
     request_tick_for_chamados_event as _request_tick_for_chamados_event,
+    PHOTO_PURGE_PATH as _QSTASH_PHOTO_PURGE_PATH,
+    PHOTO_PURGE_BODY as _QSTASH_PHOTO_PURGE_BODY,
+    photo_purge_destination as _qstash_photo_purge_destination,
+    verify_signed_photo_purge as _verify_qstash_photo_purge,
 )
 from chamados_workflow import (schedule as _schedule_chamado_workflow,
                               register as _register_chamado_workflow,
@@ -8456,17 +8460,79 @@ def chamados_photos_purge():
     body = request.get_json(silent=True) or {}
     if not isinstance(body, dict):
         return jsonify({'error': 'Invalid body'}), 400
-    dry_run = body.get('dry_run') is True
+    return _run_photo_purge(dry_run=body.get('dry_run') is True)
+
+
+@_route_once(_QSTASH_PHOTO_PURGE_PATH, methods=['POST'])
+def chamados_photos_qstash_purge():
+    if not _qstash_photo_purge_destination():
+        return jsonify({'error': 'Não encontrado'}), 404
+    if request.content_length is not None and request.content_length > 256:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+    raw = request.get_data(cache=False)
+    try:
+        verified = _verify_qstash_photo_purge(raw, request.headers.get('Upstash-Signature', ''))
+    except (RuntimeError, ImportError):
+        return jsonify({'error': 'Agendador indisponível'}), 503
+    if not verified:
+        return jsonify({'error': 'Assinatura inválida'}), 401
+    if not _require_supabase():
+        return jsonify({'error': 'Supabase não configurado'}), 503
+    # Until explicit activation, signed scheduled messages are audit-only.
+    dry_run = raw != _QSTASH_PHOTO_PURGE_BODY or os.environ.get('LABHUB_QSTASH_PHOTO_PURGE_ENABLED') != '1'
+    return _run_photo_purge(dry_run=dry_run)
+
+
+def _run_photo_purge(*, dry_run):
+    # Both the signed scheduler and manual recovery share a lease when active.
+    # Dry runs never mutate; the legacy job remains unchanged until cutover.
+    if dry_run or os.environ.get('LABHUB_QSTASH_PHOTO_PURGE_ENABLED') != '1':
+        return _photo_purge_impl(dry_run=dry_run)
+    if redis is None:
+        return jsonify({'error': 'Photo purge lease unavailable'}), 503
+    key = 'labhub:chamados:photo-purge:lease:v1'
+    owner = uuid.uuid4().hex
+    try:
+        if redis.set(key, owner, ex=900, nx=True) != 'OK':
+            return jsonify({'error': 'Photo purge busy; retry'}), 503
+    except Exception:
+        return jsonify({'error': 'Photo purge lease unavailable'}), 503
+    try:
+        return _photo_purge_impl(dry_run=False)
+    finally:
+        try:
+            redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                       "return redis.call('DEL', KEYS[1]) end return 0", [key], [owner])
+        except Exception:
+            logger.warning('[photo-purge] lease release failed; TTL will expire')
+
+
+def _photo_purge_impl(*, dry_run):
     cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     try:
+        # Fetch only photo-bearing records, regardless of status.
+        # An active ticket may share an asset with a closed one.
+        ticket_fields = 'id,workspace_id,status,closedAt,updatedAt,photos'
         tickets = _photo_purge_read('chamados_tickets', {
-            'select': 'id,workspace_id,status,closedAt,updatedAt,photos',
+            'select': ticket_fields, 'photos': 'neq.',
         })
         events = _photo_purge_read('ticket_events', {
-            'select': 'id,ticket_id,workspace_id,photo_urls', 'photo_urls': 'neq.',
+            'select': 'id,ticket_id,workspace_id,photo_urls,'
+                      'parent:chamados_tickets!ticket_events_ticket_id_fkey(' + ticket_fields + ')',
+            'photo_urls': 'not.in.("","[]")',
         })
         by_id = {t['id']: t for t in tickets}
-        eligible = {t['id'] for t in tickets if _photo_purge_eligible(t, cutoff)}
+        for event in events:
+            # LEFT embedding preserves missing parents for fail-closed validation.
+            # Event-only attachments are included even without ticket photos.
+            parent = event.get('parent')
+            parent_id = event.get('ticket_id')
+            if not isinstance(parent, dict) or not parent_id or parent.get('id') != parent_id:
+                raise RuntimeError('photo event parent unavailable')
+            if parent_id in by_id and by_id[parent_id] != parent:
+                raise RuntimeError('photo reference changed during scan')
+            by_id[parent_id] = parent
+        eligible = {t['id'] for t in by_id.values() if _photo_purge_eligible(t, cutoff)}
         references = {}
         failures = 0
         def add(url, parent, table, row, original):
@@ -8476,7 +8542,7 @@ def chamados_photos_purge():
             if not public_id or not re.fullmatch(r'chamados/[A-Za-z0-9_-]+', public_id):
                 return  # Never purge avatars, stock, other clouds or ambiguous URLs.
             references.setdefault(public_id, []).append((url, parent, table, row, original))
-        for t in tickets:
+        for t in by_id.values():
             add(t.get('photos'), t['id'], 'chamados_tickets', t, t.get('photos'))
         for e in events:
             raw = e.get('photo_urls')

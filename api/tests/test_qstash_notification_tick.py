@@ -902,3 +902,89 @@ def test_disabled_periodic_body_only_recovers_critical_work(api_module, monkeypa
     dispatch.assert_called_once_with(limit=5)
     for name in ("_internal_push_check", "_check_pending_users", "_periodic_inventory_check"):
         getattr(api_module, name).assert_not_called()
+
+
+PHOTO_PATH = "/api/chamados/photos/qstash/purge"
+PHOTO_BODY = b'{"job":"labhub-chamados-photos-purge","version":1}'
+PHOTO_DRY = b'{"job":"labhub-chamados-photos-dry-run","version":1}'
+
+
+@pytest.fixture
+def photo_qstash_env(monkeypatch):
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("SUPABASE_URL", "https://hvqxantwqwarqhymnyqb.supabase.co")
+    monkeypatch.setenv("QSTASH_CURRENT_SIGNING_KEY", "test-current")
+    monkeypatch.setenv("QSTASH_NEXT_SIGNING_KEY", "test-next")
+    monkeypatch.delenv("LABHUB_QSTASH_PHOTO_PURGE_ENABLED", raising=False)
+
+
+def test_photo_signed_job_binds_exact_body_and_destination(photo_qstash_env, monkeypatch):
+    import notification_tick as tick
+    receiver = Mock()
+    factory = Mock(return_value=receiver)
+    assert tick.verify_signed_photo_purge(PHOTO_BODY, "signed", receiver_factory=factory)
+    receiver.verify.assert_called_once_with(body=PHOTO_BODY.decode(), signature="signed",
+                                           url="https://lab-hub-pi.vercel.app" + PHOTO_PATH)
+    assert not tick.verify_signed_photo_purge(TICK_BODY, "signed", receiver_factory=factory)
+    assert not tick.verify_signed_photo_purge(PHOTO_BODY, "", receiver_factory=factory)
+    monkeypatch.setenv("SUPABASE_URL", "https://pgmetdqsdjotdcifjivu.supabase.co")
+    assert not tick.verify_signed_photo_purge(PHOTO_BODY, "signed", receiver_factory=factory)
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    assert not tick.verify_signed_photo_purge(PHOTO_BODY, "signed", receiver_factory=factory)
+
+
+@pytest.mark.parametrize("enabled,body,dry", [
+    ("0", PHOTO_BODY, True), ("1", PHOTO_BODY, False), ("1", PHOTO_DRY, True),
+])
+def test_photo_qstash_activation_and_dry_run(api_module, photo_qstash_env, monkeypatch, enabled, body, dry):
+    monkeypatch.setenv("LABHUB_QSTASH_PHOTO_PURGE_ENABLED", enabled)
+    monkeypatch.setattr(api_module, "_require_supabase", lambda: True)
+    verify = Mock(return_value=True)
+    monkeypatch.setattr(api_module, "_verify_qstash_photo_purge", verify)
+    runner = Mock(return_value=({"dry_run": dry}, 200))
+    monkeypatch.setattr(api_module, "_run_photo_purge", runner)
+    response = api_module.app.test_client().post(PHOTO_PATH, data=body,
+                                                  headers={"Upstash-Signature": "signed"})
+    assert response.status_code == 200
+    verify.assert_called_once_with(body, "signed")
+    runner.assert_called_once_with(dry_run=dry)
+
+
+def test_photo_qstash_bad_signature_never_runs(api_module, photo_qstash_env, monkeypatch):
+    monkeypatch.setattr(api_module, "_verify_qstash_photo_purge", Mock(return_value=False))
+    runner = Mock()
+    monkeypatch.setattr(api_module, "_run_photo_purge", runner)
+    client = api_module.app.test_client()
+    assert client.post(PHOTO_PATH, data=PHOTO_BODY).status_code == 401
+    assert client.post(PHOTO_PATH, data=b"x"*257).status_code == 401
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    assert client.post(PHOTO_PATH, data=PHOTO_BODY).status_code == 404
+    runner.assert_not_called()
+
+
+def test_photo_purge_lease_blocks_concurrent_manual_and_signed_runs(api_module, photo_qstash_env, monkeypatch):
+    monkeypatch.setenv("LABHUB_QSTASH_PHOTO_PURGE_ENABLED", "1")
+    store = Mock()
+    store.set.return_value = None
+    monkeypatch.setattr(api_module, "redis", store)
+    impl = Mock()
+    monkeypatch.setattr(api_module, "_photo_purge_impl", impl)
+    with api_module.app.test_request_context():
+        response, status = api_module._run_photo_purge(dry_run=False)
+        assert status == 503
+    impl.assert_not_called()
+    store.eval.assert_not_called()
+
+
+def test_photo_purge_releases_only_own_lease(api_module, photo_qstash_env, monkeypatch):
+    monkeypatch.setenv("LABHUB_QSTASH_PHOTO_PURGE_ENABLED", "1")
+    store = Mock()
+    store.set.return_value = "OK"
+    monkeypatch.setattr(api_module, "redis", store)
+    monkeypatch.setattr(api_module, "_photo_purge_impl", Mock(return_value=({"failures": 1}, 503)))
+    with api_module.app.test_request_context():
+        assert api_module._run_photo_purge(dry_run=False)[1] == 503
+    key, owner = store.set.call_args.args
+    assert store.set.call_args.kwargs == {"ex": 900, "nx": True}
+    assert store.eval.call_args.args[1:] == ([key], [owner])
+    assert "GET" in store.eval.call_args.args[0]
