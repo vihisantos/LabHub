@@ -41,7 +41,7 @@ workspace.disabled_apps = ['tv', 'stock']
 A verificação de disponibilidade tem três camadas:
 
 1. **Workspace** — a aplicação está habilitada? (`disabled_apps`)
-2. **Usuário** — o usuário tem permissão? (`app_access` / role)
+2. **Usuário** — a membership ativa e a matriz RBAC 2.0 permitem a visibilidade do módulo?
 3. **Acesso concedido** — a aplicação fica disponível
 
 **Importante:** a desativação no workspace sempre prevalece. Um usuário com acesso `full` a uma aplicação não consegue usá-la se ela estiver desativada no workspace.

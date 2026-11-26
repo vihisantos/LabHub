@@ -1,8 +1,3 @@
-export type AppAccessLevel = 'dash' | 'read' | 'full'
-
-/** Valor possível no override individual por usuário (permite bloquear explicitamente) */
-export type AppAccessOverride = AppAccessLevel | 'none'
-
 export interface Role {
   id: string
   /** Slug estável do cargo (usado na migração legada / matching por nome). Cargos novos podem não ter. */
@@ -53,10 +48,6 @@ export const LEADERSHIP_LEVEL_LABELS: Record<number, string> = {
  * pelo banco — a tabela `public.roles` (036) tem shape RBAC2 (`slug`,
  * `workspace_id`, `is_system`) e a coleção local está em
  * `LOCAL_ONLY_COLLECTIONS` (lib/sync.ts), logo nunca sincroniza.
- *
- * `AppAccessLevel`/`AppAccessOverride` continuam existindo APENAS como tipo do
- * campo `User.app_access` (compatibilidade de payload enquanto a coluna
- * `profiles.app_access` não for removida na etapa de banco).
  */
 export const DEFAULT_ROLES: Role[] = [
   {
