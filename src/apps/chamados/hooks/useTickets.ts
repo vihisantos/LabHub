@@ -37,6 +37,7 @@ export function useTickets() {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const [realtimeConnected, setRealtimeConnected] = useState(false)
   const [, setBroadcastConnected] = useState(false)
   const { workspace } = useWorkspace()
@@ -76,11 +77,13 @@ export function useTickets() {
         try {
           await ticketService.pullRemote()
           success = true
+          setLoadError(false)
           lastFullSuccess.current = Date.now()
           recordTicketSync('fullSuccess', Date.now() - lastSyncAttempt.current)
         } catch {
           recordTicketSync('fullFailure', Date.now() - lastSyncAttempt.current)
           success = false
+          setLoadError(true)
           // Sem conexão: mantém o cache local.
         } finally {
           load(silent)
@@ -353,5 +356,5 @@ export function useTickets() {
     }
   }, [checkAutoArchive, syncRemote])
 
-  return { tickets, loading, syncing, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
+  return { tickets, loading, syncing, loadError, realtimeConnected, create, update, updateStatus, claim, resume, transfer, remove, reload }
 }

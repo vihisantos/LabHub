@@ -42,7 +42,7 @@ type StatusFilterValue = TicketStatus | 'arquivados' | 'em_andamento' | ''
 export function TicketList() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { tickets, syncing, reload } = useTicketsContext()
+  const { tickets, loading, syncing, loadError, reload } = useTicketsContext()
   const { user } = useAuth()
   // Fase 2.1 — os query params da Central INICIALIZAM os filtros existentes:
   // o useState abaixo continua sendo a única fonte de verdade após o mount.
@@ -89,8 +89,7 @@ export function TicketList() {
     setUnassignedFilter(false)
   }
 
-  const filteredTickets = useMemo(() => {
-    const slaByWorkspace = slaConfigService.getHoursForTickets()
+  const viewTickets = useMemo(() => {
     return tickets.filter((t) => {
       const archived = t.archived === true || t.status === 'fechado'
       if (assignedFilter) {
@@ -111,6 +110,13 @@ export function TicketList() {
         // Visão padrão "Ativos": somente aberto, a_caminho e em_atendimento.
         return false
       }
+      return true
+    })
+  }, [tickets, statusFilter, assignedFilter, unassignedFilter, user?.id])
+
+  const filteredTickets = useMemo(() => {
+    const slaByWorkspace = slaConfigService.getHoursForTickets()
+    return viewTickets.filter((t) => {
       if (slaFilter && getSlaState(t.createdAt, t.priority, t.status, slaByWorkspace[t.workspace_id ?? '']) !== slaFilter) return false
       if (priorityFilter && getPriority(t.priority) !== priorityFilter) return false
       if (roomFilter && t.roomName !== roomFilter) return false
@@ -125,7 +131,7 @@ export function TicketList() {
       }
       return true
     })
-  }, [tickets, statusFilter, assignedFilter, unassignedFilter, priorityFilter, slaFilter, roomFilter, search, user?.id])
+  }, [viewTickets, priorityFilter, slaFilter, roomFilter, search])
 
   const uniqueRooms = useMemo(() => {
     return [...new Set(tickets.map((t) => t.roomName))].sort()
@@ -422,68 +428,56 @@ export function TicketList() {
         )}
       </section>
 
-      {sortedTickets.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-dashed border-line bg-card/50 px-5 py-12 text-center">
+      {sortedTickets.length === 0 && (loading || syncing) ? (
+        <p role="status" className="rounded-xl border border-line bg-card p-5 text-center text-sm text-fg-muted">Carregando chamados…</p>
+      ) : sortedTickets.length === 0 && loadError ? (
+        <div role="alert" className="rounded-xl border border-line bg-card p-5 text-center">
+          <p className="text-sm font-semibold text-fg">Não foi possível atualizar os chamados.</p>
+          <p className="mt-1 text-xs text-fg-muted">A lista pode estar desatualizada. Tente novamente.</p>
+          <button type="button" onClick={() => void reload()} className="mt-3 rounded-lg border border-line px-3 py-2 text-xs font-semibold text-fg">Tentar novamente</button>
+        </div>
+      ) : sortedTickets.length === 0 ? (
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-line bg-card/50 px-5 py-12 text-center" role="status">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-input text-fg-muted">
             <icons.ui.inbox size={28} />
           </div>
           <p className="mt-4 text-sm font-semibold text-fg">
-            {search
-              ? 'Nenhum chamado encontrado'
-              : assignedFilter
-                ? 'Nenhum atendimento atribuído a você'
-                : unassignedFilter
-                  ? 'Nenhum chamado sem responsável'
-                  : statusFilter === 'arquivados'
-                    ? 'Nenhum chamado arquivado'
-                    : statusFilter === 'em_espera'
-                      ? 'Nenhum chamado em espera'
-                      : statusFilter === 'indeferido'
-                        ? 'Nenhum chamado indeferido'
-                        : statusFilter === 'resolvido'
-                          ? 'Nenhum chamado resolvido'
-                          : priorityFilter || slaFilter || roomFilter
-                            ? 'Nenhum chamado corresponde aos filtros'
-                            : tickets.length === 0
-                              ? 'A fila está vazia'
-                              : 'Nenhum chamado ativo'}
+            {viewTickets.length > 0 && search ? 'Nenhum chamado encontrado'
+              : viewTickets.length > 0 && (priorityFilter || slaFilter || roomFilter) ? 'Nenhum chamado corresponde aos filtros'
+                : assignedFilter ? 'Nenhum atendimento atribuído a você'
+                  : unassignedFilter ? 'Nenhum chamado sem responsável'
+                    : statusFilter === 'arquivados' ? 'Nenhum chamado arquivado'
+                      : statusFilter ? `Nenhum chamado ${({ em_espera: 'em espera', indeferido: 'indeferido', resolvido: 'resolvido', em_andamento: 'em andamento', aberto: 'aberto', a_caminho: 'a caminho', em_atendimento: 'em atendimento', fechado: 'fechado' })[statusFilter]}`
+                        : tickets.length === 0 ? 'A fila está vazia' : 'Nenhum chamado ativo'}
           </p>
           <p className="mt-1 max-w-md text-xs leading-relaxed text-fg-dim">
-            {tickets.length === 0
-              ? 'Quando um novo chamado for registrado, ele aparecerá aqui.'
-              : search
-                ? 'Tente conferir o número, a sala ou o termo pesquisado.'
-                : assignedFilter
-                  ? 'Quando um chamado for atribuído a você, ele aparecerá nesta visualização.'
-                  : unassignedFilter
-                    ? 'No momento, não há chamados ativos aguardando responsável.'
-                    : statusFilter === 'arquivados'
-                      ? 'Os chamados arquivados aparecerão aqui.'
-                      : statusFilter === 'em_espera'
-                        ? 'Os chamados colocados em espera aparecerão aqui.'
-                        : statusFilter === 'indeferido'
-                          ? 'Os chamados indeferidos aparecerão aqui.'
-                          : statusFilter === 'resolvido'
-                            ? 'Os chamados resolvidos aparecerão aqui.'
-                            : priorityFilter || slaFilter || roomFilter
-                              ? 'Tente remover ou alterar algum filtro para ampliar os resultados.'
+            {viewTickets.length > 0 && search ? 'Tente conferir o número, a sala ou o termo pesquisado.'
+              : viewTickets.length > 0 && (priorityFilter || slaFilter || roomFilter) ? 'Tente remover ou alterar algum filtro para ampliar os resultados.'
+                : assignedFilter ? 'Quando um chamado for atribuído a você, ele aparecerá nesta visualização.'
+                  : unassignedFilter ? 'No momento, não há chamados ativos aguardando responsável.'
+                    : statusFilter === 'arquivados' ? 'Os chamados arquivados aparecerão aqui.'
+                      : statusFilter === 'em_espera' ? 'Os chamados colocados em espera aparecerão aqui.'
+                        : statusFilter === 'indeferido' ? 'Os chamados indeferidos aparecerão aqui.'
+                          : statusFilter ? 'Os chamados com este status aparecerão aqui.'
+                            : tickets.length === 0 ? 'Quando um novo chamado for registrado, ele aparecerá aqui.'
                               : 'Não há chamados em andamento nesta fila no momento.'}
           </p>
-          {(search || assignedFilter || unassignedFilter || statusFilter || priorityFilter || slaFilter || roomFilter) && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch('')
-                setStatusFilter('')
-                setAssignedFilter(false)
-                setUnassignedFilter(false)
-                setPriorityFilter('')
-                setSlaFilter('')
-                setRoomFilter('')
-              }}
-              className="mt-4 rounded-lg border border-line bg-card px-3 py-2 text-xs font-semibold text-fg transition-colors hover:bg-input"
-            >
+          {(search || priorityFilter || slaFilter || roomFilter) && (
+            <button type="button" onClick={() => {
+              setSearch('')
+              setPriorityFilter('')
+              setSlaFilter('')
+              setRoomFilter('')
+            }} className="mt-4 rounded-lg border border-line bg-card px-3 py-2 text-xs font-semibold text-fg transition-colors hover:bg-input">
               Limpar busca e filtros
+            </button>
+          )}
+          {(assignedFilter || unassignedFilter || statusFilter) && (
+            <button type="button" onClick={() => {
+              setStatusFilter('')
+              clearQueueScope()
+            }} className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold text-fg transition-colors hover:bg-input">
+              Voltar para Ativos
             </button>
           )}
         </div>

@@ -56,7 +56,7 @@ export function ChamadosLayout() {
 
   useOnlineSync()
 
-  const { tickets, loading, syncing, reload, create, update, updateStatus, claim, resume, transfer, remove } = useTickets()
+  const { tickets, loading, syncing, loadError, reload, create, update, updateStatus, claim, resume, transfer, remove } = useTickets()
   const { workspace } = useWorkspace()
   // Issue #367: o badge reflete a fila ATIVA do workspace
   // (aberto | a_caminho | em_atendimento). `em_espera` e `indeferido` não
@@ -71,7 +71,7 @@ export function ChamadosLayout() {
   }
 
   return (
-    <TicketsContext.Provider value={{ tickets, loading, syncing, reload, create, update, updateStatus, claim, resume, transfer, remove }}>
+    <TicketsContext.Provider value={{ tickets, loading, syncing, loadError, reload, create, update, updateStatus, claim, resume, transfer, remove }}>
       <div className="flex min-h-dvh flex-col bg-surface text-fg">
         <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-line bg-surface/80 px-4 py-3.5 backdrop-blur-xl">
           {detail && (
