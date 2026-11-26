@@ -388,6 +388,12 @@ export function TicketSuccess() {
             <span className="text-fg-muted">Problema</span>
             <span className="font-medium text-fg">{ticket.problemCategory}</span>
           </div>
+          {ticket.problemDescription?.trim() && (
+            <div className="space-y-1 border-t border-line pt-3">
+              <p className="text-xs font-medium text-fg-muted">Descrição do problema</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{ticket.problemDescription}</p>
+            </div>
+          )}
         </div>
       </div>
 

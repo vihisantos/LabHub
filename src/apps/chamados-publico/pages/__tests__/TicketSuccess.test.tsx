@@ -122,12 +122,35 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
+    expect(screen.getByText('Descrição do problema')).toBeInTheDocument()
+    expect(screen.getByText('Sem conexão')).toBeInTheDocument()
     expect(screen.getByText('PC-01')).toBeInTheDocument()
     expect(screen.getByText('Aberto')).toBeInTheDocument()
     expect(screen.getByText('Atualiza automaticamente')).toBeInTheDocument()
     expect(screen.queryByText('Acompanhar e avaliar depois')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Abrir outro chamado' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Consultar outros chamados' })).toBeInTheDocument()
+  })
+
+  it('preserva a descrição original e não renderiza HTML informado pelo solicitante', async () => {
+    const description = 'Sem internet\n<script>alert(1)</script>'
+    const ticket = makeTicket({ problemDescription: description })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    const { container } = renderSuccess()
+    await act(async () => {})
+    const detail = screen.getByText('Descrição do problema').nextElementSibling
+    expect(detail?.textContent).toBe(description)
+    expect(container.querySelector('script')).toBeNull()
+  })
+
+  it('oculta a seção quando não há descrição', async () => {
+    const ticket = makeTicket({ problemDescription: '   ' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.queryByText('Descrição do problema')).not.toBeInTheDocument()
   })
 
   it('busca o status pelo token (polling) e atualiza ao vivo', async () => {
