@@ -387,6 +387,51 @@ export function TicketSuccess() {
       </CampusHero>
 
       <div className="mt-4 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
+        <div className="mb-4 flex items-center justify-center gap-3">
+          <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
+          <button
+            type="button"
+            onClick={handleCopyNumber}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 transition-colors hover:bg-emerald-500/20"
+            title={copied ? 'Copiado!' : 'Copiar número'}
+          >
+            {copied ? <icons.ui.circleCheck size={16} /> : <icons.ui.copy size={16} />}
+          </button>
+        </div>
+
+        <div className="space-y-3 border-t border-line pt-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-fg-muted">Sala</span>
+            <span className="font-medium text-fg">{ticket.roomName}</span>
+          </div>
+          {ticket.assetName && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-fg-muted">Equipamento</span>
+              <span className="font-medium text-fg">{ticket.assetName}</span>
+            </div>
+          )}
+          {ticket.problemArea && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-fg-muted">Área</span>
+              <span className="font-medium text-fg">
+                {ticket.problemArea === 'administrativa' ? 'Área Administrativa' : 'Área Acadêmica'}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-fg-muted">Problema</span>
+            <span className="font-medium text-fg">{ticket.problemCategory}</span>
+          </div>
+          {ticket.problemDescription?.trim() && (
+            <div className="space-y-1 border-t border-line pt-3">
+              <p className="text-xs font-medium text-fg-muted">Descrição do problema</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{ticket.problemDescription}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold text-fg-muted">Status ao vivo</h2>
           <span className="flex items-center gap-1.5 text-[10px] text-fg-dim">
@@ -461,51 +506,6 @@ export function TicketSuccess() {
             <span className="ml-1 text-fg-muted">Atualizado às {formatTime(ticket.updatedAt)}.</span>
           )}
         </p>
-      </div>
-
-      <div className="mt-3 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
-        <div className="mb-4 flex items-center justify-center gap-3">
-          <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
-          <button
-            type="button"
-            onClick={handleCopyNumber}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 transition-colors hover:bg-emerald-500/20"
-            title={copied ? 'Copiado!' : 'Copiar número'}
-          >
-            {copied ? <icons.ui.circleCheck size={16} /> : <icons.ui.copy size={16} />}
-          </button>
-        </div>
-
-        <div className="space-y-3 border-t border-line pt-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-fg-muted">Sala</span>
-            <span className="font-medium text-fg">{ticket.roomName}</span>
-          </div>
-          {ticket.assetName && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-fg-muted">Equipamento</span>
-              <span className="font-medium text-fg">{ticket.assetName}</span>
-            </div>
-          )}
-          {ticket.problemArea && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-fg-muted">Área</span>
-              <span className="font-medium text-fg">
-                {ticket.problemArea === 'administrativa' ? 'Área Administrativa' : 'Área Acadêmica'}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-fg-muted">Problema</span>
-            <span className="font-medium text-fg">{ticket.problemCategory}</span>
-          </div>
-          {ticket.problemDescription?.trim() && (
-            <div className="space-y-1 border-t border-line pt-3">
-              <p className="text-xs font-medium text-fg-muted">Descrição do problema</p>
-              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{ticket.problemDescription}</p>
-            </div>
-          )}
-        </div>
       </div>
 
       {isPushSupported() && !concluded && !declined && !isLoggedIn && (
