@@ -151,6 +151,27 @@ describe('RequestsPage — fila GLOBAL de contas', () => {
     expect(screen.queryByText('João Silva')).not.toBeInTheDocument()
   })
 
+  it('mantém a solicitação na fila e exibe erro quando a aprovação falha', async () => {
+    mockAdminService.approveUser.mockResolvedValue(false)
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Aprovar' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aprovar' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Erro ao aprovar')).toBeInTheDocument()
+    })
+    expect(mockAdminService.approveUser).toHaveBeenCalledWith('u-123')
+    expect(mockAdminService.approveUser).toHaveBeenCalledTimes(1)
+    // Falha não pode remover a conta da fila nem fingir sucesso.
+    expect(screen.getByText('João Silva')).toBeInTheDocument()
+    expect(screen.queryByText('Conta aprovada — acesso ainda não configurado')).not.toBeInTheDocument()
+  })
+
   it('recusa uma solicitação', async () => {
     renderPage()
 
