@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, act } from '@testing-library/react'
+import { screen, act, fireEvent } from '@testing-library/react'
 import { Routes, Route } from 'react-router-dom'
 import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../../chamados/types'
@@ -235,6 +235,50 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Seu chamado foi concluído. Obrigado!')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Problema resolvido!' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+  })
+
+  it.each(['resolvido', 'fechado'] as const)('solicita feedback ao reabrir chamado %s sem avaliação', async (status) => {
+    const ticket = makeTicket({ status })
+    mockGetById.mockReturnValue(null)
+    mockGetByToken.mockResolvedValue(ticket)
+    const first = renderSuccess()
+    await act(async () => {})
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agora não' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    first.unmount()
+    renderSuccess()
+    await act(async () => {})
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+  })
+
+  it('não solicita feedback quando já existe uma avaliação', async () => {
+    const ticket = makeTicket({ status: 'resolvido', feedbackRating: 5 })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avaliar atendimento' })).not.toBeInTheDocument()
+  })
+
+  it('espera a animação do status antes de solicitar feedback ao resolver', async () => {
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+    mockGetByToken.mockResolvedValue(makeTicket({ status: 'resolvido' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+    expect(screen.getByRole('heading', { name: 'Problema resolvido!' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
   })
 
   it('(A) Notification indisponível — renderiza sem crash', async () => {

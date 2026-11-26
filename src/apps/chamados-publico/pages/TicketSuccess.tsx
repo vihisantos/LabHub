@@ -9,6 +9,7 @@ import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
 import { CampusHero } from '../components/CampusBackdrop'
+import { FeedbackSheet } from '../components/FeedbackSheet'
 import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
 import './TicketSuccess.css'
 
@@ -33,6 +34,7 @@ const STATUS_HERO = {
 } satisfies Record<TicketStatus, { title: string; description: string; Icon: typeof icons.ui.checkCircle; color: string }>
 
 const POLL_INTERVAL_MS = 15000
+const FEEDBACK_PROMPT_DELAY_MS = 480
 
 function statusMessage(ticket: Ticket): string {
   return (ticket.statusNote || STATUS_MESSAGES[ticket.status] || '').trim()
@@ -166,6 +168,41 @@ export function TicketSuccess() {
   const [ratingDone, setRatingDone] = useState(false)
   const [ratingError, setRatingError] = useState('')
   const hasShownRatingRef = useRef(false)
+  const [feedbackConfirmed, setFeedbackConfirmed] = useState(false)
+  const feedbackEligible = feedbackConfirmed && !!trackingToken && !notFound && !!ticket &&
+    (ticket.status === 'resolvido' || ticket.status === 'fechado') && !ticket.feedbackRating && !ratingDone
+
+  // One automatic prompt per visit, after the token-scoped API confirms the
+  // current ticket. A reload/remount asks again if feedback is still missing.
+  useEffect(() => {
+    if (!feedbackEligible || showRatingModal || hasShownRatingRef.current) return
+    const timer = window.setTimeout(() => {
+      hasShownRatingRef.current = true
+      setShowRatingModal(true)
+    }, FEEDBACK_PROMPT_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [feedbackEligible, showRatingModal])
+
+  useEffect(() => {
+    if (!feedbackEligible && !ratingDone && showRatingModal && !ratingSubmitting) {
+      setShowRatingModal(false)
+    }
+  }, [feedbackEligible, ratingDone, showRatingModal, ratingSubmitting])
+
+  useEffect(() => {
+    if (!ratingDone) return
+    const timer = window.setTimeout(() => setShowRatingModal(false), 1500)
+    return () => window.clearTimeout(timer)
+  }, [ratingDone])
+
+  function openFeedback() {
+    hasShownRatingRef.current = true
+    setShowRatingModal(true)
+  }
+
+  function closeFeedback() {
+    if (!ratingSubmitting) setShowRatingModal(false)
+  }
 
   /* Inicialização do push state — isolada do fluxo crítico */
   useEffect(() => {
@@ -221,17 +258,8 @@ export function TicketSuccess() {
     }
   }
 
-  function maybeShowRating(next: Ticket) {
-    const wasResolved = lastStatusRef.current === 'resolvido' || lastStatusRef.current === 'fechado'
-    const isNowResolved = next.status === 'resolvido' || next.status === 'fechado'
-    if (!wasResolved && isNowResolved && !next.feedbackRating && !hasShownRatingRef.current) {
-      hasShownRatingRef.current = true
-      setShowRatingModal(true)
-    }
-  }
-
   async function handleSubmitRating() {
-    if (!ticket || rating < 1) return
+    if (!ticket || !feedbackEligible || rating < 1 || ratingSubmitting) return
     setRatingSubmitting(true)
     setRatingError('')
     try {
@@ -243,7 +271,7 @@ export function TicketSuccess() {
       const pub = await publicTicketService.submitFeedback(trackingToken, rating, ratingComment.trim())
       setTicket(toTicket(pub))
       setRatingDone(true)
-      setTimeout(() => setShowRatingModal(false), 1500)
+      setRatingSubmitting(false)
     } catch (err) {
       setRatingError(err instanceof Error ? err.message : 'Erro ao enviar. Tente novamente.')
       setRatingSubmitting(false)
@@ -259,11 +287,11 @@ export function TicketSuccess() {
         const fresh = toTicket(await publicTicketService.getByToken(trackingToken))
         if (!alive) return
         setTicket(fresh)
+        setFeedbackConfirmed(true)
         setOffline(false)
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== fresh.status) {
           showStatusNotification(fresh)
-          maybeShowRating(fresh)
         }
         lastStatusRef.current = fresh.status
       } catch (err) {
@@ -293,7 +321,6 @@ export function TicketSuccess() {
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== updated.status) {
           showStatusNotification(updated)
-          maybeShowRating(updated)
         }
         lastStatusRef.current = updated.status
       }
@@ -557,10 +584,10 @@ export function TicketSuccess() {
         </div>
       )}
 
-      {concluded && !ticket.feedbackRating && !ratingDone && (
+      {feedbackEligible && (
         <button
           type="button"
-          onClick={() => setShowRatingModal(true)}
+          onClick={openFeedback}
           className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium text-fg transition-colors hover:bg-input"
         >
           <icons.ui.star size={18} className="text-amber-500" />
@@ -585,26 +612,25 @@ export function TicketSuccess() {
         Consultar outros chamados
       </button>
 
-      {showRatingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-5">
-          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl">
+      <FeedbackSheet open={showRatingModal && (feedbackEligible || ratingDone)} onClose={closeFeedback}>
+          <div className="px-6 pb-4 pt-2">
             {ratingDone ? (
-              <div className="flex flex-col items-center py-4">
+              <div className="ticket-status-copy flex flex-col items-center py-6" role="status">
                 <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15">
                   <icons.ui.checkCircle size={28} className="text-emerald-500" />
                 </div>
-                <p className="text-sm font-semibold text-fg">Obrigado!</p>
+                <p className="text-lg font-semibold text-fg">Obrigado!</p>
                 <p className="mt-1 text-xs text-fg-muted">Sua avaliação foi registrada.</p>
               </div>
             ) : (
               <>
                 <div className="mb-1 text-center">
-                  <p className="text-sm font-bold text-fg">Como foi o atendimento?</p>
+                  <h2 className="text-lg font-bold text-fg">Como foi o atendimento?</h2>
                   <p className="mt-0.5 text-xs text-fg-muted">Chamado #{ticket.ticketNumber || '?'}</p>
                 </div>
 
                 <div className="mt-4 flex justify-center">
-                  <Stars value={rating} onChange={setRating} size={28} />
+                  <Stars value={rating} onChange={setRating} size={32} disabled={ratingSubmitting} />
                 </div>
                 <p className="mt-1 text-center text-[11px] text-fg-dim">
                   {rating === 0
@@ -621,6 +647,8 @@ export function TicketSuccess() {
                 <textarea
                   value={ratingComment}
                   onChange={(e) => setRatingComment(e.target.value)}
+                  aria-label="Comentário (opcional)"
+                  disabled={ratingSubmitting}
                   placeholder="Comentário (opcional)"
                   rows={2}
                   maxLength={500}
@@ -634,7 +662,8 @@ export function TicketSuccess() {
                 <div className="mt-4 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowRatingModal(false)}
+                    onClick={closeFeedback}
+                    disabled={ratingSubmitting}
                     className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-xs font-medium text-fg-muted transition-colors hover:bg-input"
                   >
                     Agora não
@@ -651,8 +680,7 @@ export function TicketSuccess() {
               </>
             )}
           </div>
-        </div>
-      )}
+      </FeedbackSheet>
     </div>
   )
 }
