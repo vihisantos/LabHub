@@ -12,6 +12,7 @@ import { CampusHero } from '../components/CampusBackdrop'
 import { FeedbackSheet } from '../components/FeedbackSheet'
 import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
 import { rememberRecentTicket, trackingPath } from '../utils/recentTickets'
+import { TicketOpenedAt } from '../components/TicketOpenedAt'
 import './TicketSuccess.css'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
@@ -522,10 +523,7 @@ export function TicketSuccess() {
             <span className="ml-auto break-words text-right font-medium text-fg">{technician}</span>
           </div>
         )}
-        <div className="mt-3 flex flex-wrap justify-between gap-1 border-t border-line pt-3 text-xs text-fg-muted">
-          <span>Aberto às {formatTime(ticket.createdAt)}</span>
-          {!concluded && !declined && elapsed && <span>Aberto há {elapsed}</span>}
-        </div>
+        <TicketOpenedAt createdAt={ticket.createdAt} elapsed={!concluded && !declined ? elapsed : undefined} prominent />
         <p className="mt-2 text-[11px] text-fg-muted">
           {concluded
             ? 'Seu chamado foi concluído. Obrigado!'

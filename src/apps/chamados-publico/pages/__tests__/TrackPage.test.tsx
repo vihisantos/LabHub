@@ -63,6 +63,8 @@ describe('TrackPage — acompanhamento anônimo via tracking token', () => {
     expect(mockGetByToken).toHaveBeenCalledWith('abc123token')
     expect(screen.getByText('#6')).toBeInTheDocument()
     expect(screen.getByText('Em atendimento')).toBeInTheDocument()
+    expect(screen.getByText('Data e horário de abertura')).toBeInTheDocument()
+    expect(screen.getByText('25/06/2026 às 09:00')).toBeInTheDocument()
   })
 
   it('mostra o histórico do chamado via endpoint público', async () => {

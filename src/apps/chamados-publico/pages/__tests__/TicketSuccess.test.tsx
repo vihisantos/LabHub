@@ -122,6 +122,8 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
+    expect(screen.getByText('Data e horário de abertura')).toBeInTheDocument()
+    expect(screen.getByText('25/06/2026 às 07:00')).toBeInTheDocument()
     expect(screen.getByText('Descrição do problema')).toBeInTheDocument()
     expect(screen.getByText('Sem conexão')).toBeInTheDocument()
     expect(screen.getByText('PC-01')).toBeInTheDocument()

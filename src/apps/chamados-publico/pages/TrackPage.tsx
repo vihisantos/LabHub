@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { publicTicketService } from '../../chamados/services/publicTicketService'
 import { icons } from '../../../lib/icons'
+import { TicketOpenedAt } from '../components/TicketOpenedAt'
 import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types'
 import type { TicketEvent } from '../../chamados/types'
 import { forgetRecentTicket, parseTrackingInput, recentTickets, recentToken, rememberRecentTicket, restoreRecentCampus, trackingPath, type RecentTicket } from '../utils/recentTickets'
@@ -122,7 +123,7 @@ export function TrackPage() {
         <p className="mt-2 text-sm font-semibold text-fg">{row.problemCategory || 'Consultar chamado'}</p>
         {row.roomName && <p className="mt-0.5 text-xs text-fg-muted">{row.roomName}</p>}
         {row.campusName && <p className="mt-1 flex items-center gap-1 text-xs text-fg-muted"><icons.ui.mapPin size={12} />{row.campusName}</p>}
-        {row.createdAt && !Number.isNaN(Date.parse(row.createdAt)) && <p className="mt-1 text-[11px] text-fg-muted">Aberto em {new Date(row.createdAt).toLocaleDateString('pt-BR')}</p>}
+        <TicketOpenedAt createdAt={row.createdAt} />
         {pending && <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400"><icons.ui.star size={13} />Avaliação pendente</p>}
         {isConcluded(row) && !!row.feedbackRating && <p className="mt-2 text-xs text-fg-muted">Avaliado</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
