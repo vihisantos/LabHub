@@ -5,6 +5,7 @@ export interface TicketsContextValue {
   tickets: Ticket[]
   loading: boolean
   syncing: boolean
+  loadError?: boolean
   reload: (silent?: boolean) => Promise<void>
   create: (data: TicketFormData) => Promise<Ticket>
   update: (id: string, data: Partial<Ticket>) => Ticket | undefined

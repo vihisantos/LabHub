@@ -167,6 +167,7 @@ const TICKETS = vi.hoisted(() => [
 ])
 
 const mockReload = vi.hoisted(() => vi.fn())
+const queueState = vi.hoisted(() => ({ loading: false, syncing: false, loadError: false }))
 const mockSearchParams = vi.hoisted(() => ({ value: '' }))
 const mockTickets = vi.hoisted(() => [] as any[])
 const slaTicketFactory = vi.hoisted(() => (id: string, ticketNumber: number, createdAt: string, over: Record<string, unknown> = {}) => ({
@@ -211,7 +212,7 @@ vi.mock('../../services/ticketService', () => ({
   ticketService: { listMine: mockListMine },
 }))
 vi.mock('../../contexts/TicketsContext', () => ({
-  useTicketsContext: () => ({ tickets: mockTickets, loading: false, syncing: false, reload: mockReload }),
+  useTicketsContext: () => ({ tickets: mockTickets, ...queueState, reload: mockReload }),
 }))
 // Usuário da sessão. Configurável para provar o caso "sem sessão" sem desmontar
 // os outros describes.
@@ -730,5 +731,48 @@ describe('TicketList — a fila operacional não é a área pessoal', () => {
 
     expect(mockReload).toHaveBeenCalledTimes(1)
     expect(mockListMine).not.toHaveBeenCalled()
+  })
+})
+
+describe('TicketList — contextual empty states (#461)', () => {
+  beforeEach(() => {
+    mockTickets.length = 0
+    mockSearchParams.value = ''
+    Object.assign(queueState, { loading: false, syncing: false, loadError: false })
+    mockReload.mockClear()
+  })
+  it.each([
+    ['Meus Atendimentos', 'Nenhum atendimento atribuído a você'],
+    ['Em espera', 'Nenhum chamado em espera'],
+    ['Indeferidos', 'Nenhum chamado indeferido'],
+    ['Arquivados', 'Nenhum chamado arquivado'],
+  ])('shows an empty %s independently of other views', (view, message) => {
+    render(<TicketList />)
+    fireEvent.click(screen.getByRole('button', { name: view }))
+    expect(screen.getByText(message)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar para Ativos' }))
+    expect(screen.getByText('A fila está vazia')).toBeInTheDocument()
+  })
+  it('clears search without changing the selected view', () => {
+    mockTickets.push({ ...TICKETS[0], status: 'em_espera' })
+    render(<TicketList />)
+    fireEvent.click(screen.getByRole('button', { name: /^Em espera/ }))
+    fireEvent.change(screen.getByPlaceholderText('Buscar por #, sala, ativo ou problema...'), { target: { value: 'inexistente' } })
+    expect(screen.getByText('Nenhum chamado encontrado')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar busca e filtros' }))
+    expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+  it('distinguishes loading and failure from empty data', () => {
+    queueState.loading = true
+    const { rerender } = render(<TicketList />)
+    expect(screen.getByText('Carregando chamados…')).toBeInTheDocument()
+    expect(screen.queryByText('A fila está vazia')).not.toBeInTheDocument()
+    queueState.loading = false
+    queueState.loadError = true
+    rerender(<TicketList />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Não foi possível atualizar os chamados.')
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    expect(mockReload).toHaveBeenCalledTimes(1)
+    queueState.loadError = false
   })
 })
