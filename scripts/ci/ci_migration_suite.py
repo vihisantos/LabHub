@@ -318,6 +318,18 @@ def main() -> int:
     step_behavioral_patrimonio(executor)
     step_behavioral_108_concurrency(dsn)
 
+    from acceptance_285_300 import check_runner, check_workspace_acl
+
+    for name, check in (
+        ("STEP 10 - real runner rollback, recovery, advisory lock and idempotence (#285)", check_runner),
+        ("STEP 11 - authenticated workspace app helper ACL and RLS (#300)", check_workspace_acl),
+    ):
+        try:
+            check(dsn)
+            report(name, True)
+        except Exception as exc:
+            _fail(name, exc)
+
     failed = [n for n, ok, _ in _REPORT if not ok]
     print(f"[suite] RESULTADO: {len(_REPORT) - len(failed)}/{len(_REPORT)} PASS")
     if failed:
