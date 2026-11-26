@@ -102,6 +102,11 @@ describe('publicTicketService — transporte seguro do tracking token', () => {
 
 
 describe('publicTicketService — avaliação do professor (projection + 409)', () => {
+  it('toTicket usa somente o nome público do técnico quando fornecido', () => {
+    expect(toTicket({ id: 't-1', technicianName: 'Ana' }).assignedTo).toBe('Ana')
+    expect(toTicket({ id: 't-1', technicianName: null }).assignedTo).toBe('')
+  })
+
   it('toTicket leva feedbackComment e feedbackAt para a UI', () => {
     // Antes estes campos eram devolvidos pelo backend mas nunca lidos: o card
     // "Avaliação enviada" existia e não renderizava nada.

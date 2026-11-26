@@ -138,7 +138,9 @@ export function TicketSuccess() {
   // Lido da URL e do localStorage; removido da URL imediatamente (replaceState).
   const [trackingToken] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search)
-    const urlToken = params.get('token')
+    // Links de compartilhamento usam fragmento: a credencial não vai ao servidor.
+    const fragment = new URLSearchParams(window.location.hash.slice(1))
+    const urlToken = fragment.get('token') || params.get('token')
     const stored = urlToken || safeLocalStorageGet(`chamado_token_${ticketId ?? ''}`)
     if (urlToken && ticketId) {
       safeLocalStorageSet(`chamado_token_${ticketId}`, urlToken)
@@ -152,6 +154,8 @@ export function TicketSuccess() {
   const [notFound, setNotFound] = useState(false)
   const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
   const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [linkCopyError, setLinkCopyError] = useState(false)
   const lastStatusRef = useRef(ticket?.status)
 
   const [showRatingModal, setShowRatingModal] = useState(false)
@@ -321,6 +325,36 @@ export function TicketSuccess() {
   const hero = STATUS_HERO[ticket.status] ?? STATUS_HERO.aberto
   const StatusIcon = hero.Icon
   const declined = ticket.status === 'indeferido'
+  const technician = ticket.assignedTo?.trim()
+  const heroTitle = technician && ticket.status === 'a_caminho'
+    ? `Técnico ${technician} está a caminho!`
+    : hero.title
+  const heroDescription = technician && ticket.status === 'em_atendimento'
+    ? `Técnico ${technician} está atendendo seu chamado.`
+    : hero.description
+  const elapsedMinutes = Math.floor((Date.now() - new Date(ticket.createdAt).getTime()) / 60000)
+  const elapsed = Number.isFinite(elapsedMinutes) && elapsedMinutes >= 0
+    ? elapsedMinutes < 1 ? 'menos de 1 min' : elapsedMinutes < 60 ? `${elapsedMinutes} min` : `${Math.floor(elapsedMinutes / 60)} h ${elapsedMinutes % 60} min`
+    : undefined
+  const steps = [
+    { label: 'Registro', current: ticket.status === 'aberto' },
+    { label: 'Deslocamento', current: ticket.status === 'a_caminho' },
+    { label: 'Atendimento', current: ticket.status === 'em_atendimento' },
+    { label: 'Conclusão', current: concluded },
+  ]
+
+  async function handleCopyLink() {
+    if (!trackingToken || !ticket) return
+    const url = new URL(`/chamados-publico/success/${encodeURIComponent(ticket.id)}`, window.location.origin)
+    url.hash = new URLSearchParams({ token: trackingToken }).toString()
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      setLinkCopied(true)
+      setLinkCopyError(false)
+    } catch {
+      setLinkCopyError(true)
+    }
+  }
 
   async function handleCopyNumber() {
     if (!ticket) return
@@ -341,8 +375,8 @@ export function TicketSuccess() {
           <div className={`mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full ${hero.color}`}>
             <StatusIcon size={40} aria-hidden="true" />
           </div>
-          <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{hero.title}</h1>
-          <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{hero.description}</p>
+          <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{heroTitle}</h1>
+          <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{heroDescription}</p>
         </div>
         {campusName && (
           <p className="campus-hero__subtitle mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-fg-muted">
@@ -353,6 +387,83 @@ export function TicketSuccess() {
       </CampusHero>
 
       <div className="mt-4 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold text-fg-muted">Status ao vivo</h2>
+          <span className="flex items-center gap-1.5 text-[10px] text-fg-dim">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                offline ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'
+              }`}
+            />
+            {offline ? 'Sem conexão — tenta de novo automaticamente' : 'Atualiza automaticamente'}
+          </span>
+        </div>
+
+        {!declined && (
+          <ol aria-label="Etapas possíveis do atendimento" className="mt-4 grid grid-cols-4 gap-1">
+            {steps.map((step, index) => (
+              <li key={step.label} aria-current={step.current ? 'step' : undefined} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
+                {index > 0 && <span aria-hidden="true" className="absolute right-1/2 top-3 h-px w-full bg-line" />}
+                <span className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full border ${step.current || index === 0 ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-line bg-card text-fg-muted'}`}>
+                  {index === 0 ? <icons.ui.check size={13} aria-hidden="true" /> : <span className="text-[10px]">{index + 1}</span>}
+                </span>
+                <span className={`text-[10px] leading-tight ${step.current ? 'font-semibold text-fg' : 'text-fg-muted'}`}>{step.label}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <div className="mt-3">
+          {ticket.status === 'indeferido' || ticket.status === 'em_espera' ? (
+            // Motivo estruturado e observação de espera/indeferimento.
+            <div className="space-y-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
+              >
+                {TICKET_STATUS_LABELS[ticket.status]}
+              </span>
+              {ticket.reasonLabel && (
+                <p className={`rounded-lg px-3 py-2 text-xs font-semibold ${declined ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-violet-500/10 text-violet-600 dark:text-violet-400'}`}>
+                  Motivo: {ticket.reasonLabel}
+                </p>
+              )}
+              {ticket.reasonNote && <p className="text-xs text-fg-muted">{ticket.reasonNote}</p>}
+              {!ticket.reasonLabel && !ticket.reasonNote && statusMsg && <p className="text-sm font-medium text-fg">{statusMsg}</p>}
+            </div>
+          ) : (
+            <>
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
+              >
+                {TICKET_STATUS_LABELS[ticket.status]}
+              </span>
+              {statusMsg && <p className="mt-2 text-sm font-medium text-fg">{statusMsg}</p>}
+            </>
+          )}
+        </div>
+
+        {technician && !declined && (
+          <div className="mt-3 flex items-center gap-2 border-t border-line pt-3 text-sm">
+            <icons.ui.user size={16} className="shrink-0 text-fg-muted" aria-hidden="true" />
+            <span className="text-fg-muted">Técnico responsável</span>
+            <span className="ml-auto break-words text-right font-medium text-fg">{technician}</span>
+          </div>
+        )}
+        <div className="mt-3 flex flex-wrap justify-between gap-1 border-t border-line pt-3 text-xs text-fg-muted">
+          <span>Aberto às {formatTime(ticket.createdAt)}</span>
+          {!concluded && !declined && elapsed && <span>Aberto há {elapsed}</span>}
+        </div>
+        <p className="mt-2 text-[11px] text-fg-muted">
+          {concluded
+            ? 'Seu chamado foi concluído. Obrigado!'
+            : declined ? 'Consulte o motivo informado pela equipe.' : 'Pode fechar esta página — o andamento fica registrado. Volte quando quiser para ver o status.'}
+          {ticket.updatedAt && (
+            <span className="ml-1 text-fg-muted">Atualizado às {formatTime(ticket.updatedAt)}.</span>
+          )}
+        </p>
+      </div>
+
+      <div className="mt-3 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
           <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
           <button
@@ -397,58 +508,6 @@ export function TicketSuccess() {
         </div>
       </div>
 
-      <div className="mt-3 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold text-fg-muted">Status ao vivo</h2>
-          <span className="flex items-center gap-1.5 text-[10px] text-fg-dim">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                offline ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'
-              }`}
-            />
-            {offline ? 'Sem conexão — tenta de novo automaticamente' : 'Atualiza automaticamente'}
-          </span>
-        </div>
-
-        <div className="mt-3">
-          {ticket.status === 'indeferido' || ticket.status === 'em_espera' ? (
-            // Motivo estruturado e observação de espera/indeferimento.
-            <div className="space-y-2">
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
-              >
-                {TICKET_STATUS_LABELS[ticket.status]}
-              </span>
-              {ticket.reasonLabel && (
-                <p className={`rounded-lg px-3 py-2 text-xs font-semibold ${declined ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-violet-500/10 text-violet-600 dark:text-violet-400'}`}>
-                  Motivo: {ticket.reasonLabel}
-                </p>
-              )}
-              {ticket.reasonNote && <p className="text-xs text-fg-muted">{ticket.reasonNote}</p>}
-              {!ticket.reasonLabel && !ticket.reasonNote && statusMsg && <p className="text-sm font-medium text-fg">{statusMsg}</p>}
-            </div>
-          ) : (
-            <>
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
-              >
-                {TICKET_STATUS_LABELS[ticket.status]}
-              </span>
-              {statusMsg && <p className="mt-2 text-sm font-medium text-fg">{statusMsg}</p>}
-            </>
-          )}
-        </div>
-
-        <p className="mt-3 border-t border-line pt-3 text-[10px] text-fg-dim">
-          {concluded
-            ? 'Seu chamado foi concluído. Obrigado!'
-            : 'Pode fechar esta página — o andamento fica registrado. Volte quando quiser para ver o status.'}
-          {ticket.updatedAt && (
-            <span className="ml-1 text-fg-dim">Atualizado às {formatTime(ticket.updatedAt)}.</span>
-          )}
-        </p>
-      </div>
-
       {isPushSupported() && !concluded && !declined && !isLoggedIn && (
         <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
           {pushState === 'on' ? (
@@ -477,6 +536,22 @@ export function TicketSuccess() {
         </div>
       )}
 
+      {trackingToken && (
+        <div className="mt-3 w-full max-w-sm text-center">
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-input"
+          >
+            <icons.ui.link size={14} aria-hidden="true" />
+            {linkCopied ? 'Link copiado!' : 'Copiar link de acompanhamento'}
+          </button>
+          <p className="text-[11px] text-fg-muted" role="status">
+            {linkCopyError ? 'Não foi possível copiar o link.' : 'Link privado: quem o receber poderá consultar e avaliar este chamado.'}
+          </p>
+        </div>
+      )}
+
       {concluded && !ticket.feedbackRating && !ratingDone && (
         <button
           type="button"
@@ -491,7 +566,7 @@ export function TicketSuccess() {
       <button
         type="button"
         onClick={() => navigate('/chamados-publico')}
-        className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-line px-5 py-2.5 text-sm font-medium text-fg-muted transition-colors hover:bg-input hover:text-fg"
+        className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-line px-5 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input hover:text-fg"
       >
         <icons.ui.plus size={18} />
         Abrir outro chamado

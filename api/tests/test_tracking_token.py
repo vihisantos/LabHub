@@ -411,6 +411,7 @@ def test_detail_nao_expoe_campos_internos(client, fake_requests):
 
     r = client.get("/api/public/chamados/segredo-token-A")
     body = r.get_json()["ticket"]
+    assert body["technicianName"] is None
     for campo in ("reportedByEmail", "assignedTo", "workspace_id", "tracking_token_hash"):
         assert campo not in body, f"não deve expor {campo}"
 
@@ -440,9 +441,11 @@ def test_projection_publica_tem_key_set_exato(client, fake_requests):
     r = client.get("/api/public/chamados/segredo-token-A")
     body = r.get_json()["ticket"]
 
+    assert body["technicianName"] == "Tec"
     assert set(body.keys()) == {
         "id",
         "ticketNumber",
+        "technicianName",
         "status",
         "roomName",
         "problemCategory",

@@ -61,6 +61,8 @@ async function publicRequest<T>(
 export interface PublicTicket {
   id: string
   ticketNumber?: number
+  /** Nome de exibição do responsável, sem dados internos do perfil. */
+  technicianName?: string | null
   status?: TicketStatus
   roomName?: string
   problemCategory?: string
@@ -126,7 +128,7 @@ export function toTicket(p: PublicTicket): Ticket {
     status: p.status ?? 'aberto',
     reportedBy: p.reportedBy ?? '',
     reportedByEmail: '',
-    assignedTo: '',
+    assignedTo: p.technicianName ?? '',
     feedbackRating: p.feedbackRating ?? undefined,
     feedbackComment: p.feedbackComment ?? undefined,
     feedbackAt: p.feedbackAt ?? undefined,

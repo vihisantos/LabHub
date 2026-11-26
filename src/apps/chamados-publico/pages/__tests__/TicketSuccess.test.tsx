@@ -167,6 +167,18 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Técnico a caminho')).toBeInTheDocument()
   })
 
+  it('mostra nome do técnico a caminho e destaca apenas a etapa atual', async () => {
+    const ticket = makeTicket({ status: 'a_caminho', assignedTo: 'Ana' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: 'Técnico Ana está a caminho!' })).toBeInTheDocument()
+    expect(screen.getByText('Ana')).toBeInTheDocument()
+    expect(screen.getByText('Deslocamento').closest('li')).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('Atendimento').closest('li')).not.toHaveAttribute('aria-current')
+  })
+
   it('indica ausência de conexão quando o polling falha', async () => {
     mockGetById.mockReturnValue(makeTicket())
     mockGetByToken.mockRejectedValue(new Error('offline'))
