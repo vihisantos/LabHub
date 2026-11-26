@@ -6,6 +6,7 @@ import { ticketService } from '../../chamados/services/ticketService'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
 import { CampusHero } from '../components/CampusBackdrop'
 import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
+import { rememberRecentTicket } from '../utils/recentTickets'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
 
@@ -142,6 +143,7 @@ export function TicketForm() {
         // Storage indisponível — token segue apenas na URL.
       }
       rememberTicketCampus(ticket.id, campusArtworkKey(workspaces.find((w) => w.id === campusId)?.name))
+      rememberRecentTicket(ticket, trackingToken, workspaces.find((w) => w.id === campusId)?.name)
       navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch {
       setSubmitError('Não foi possível abrir o chamado. Verifique sua conexão e tente novamente.')

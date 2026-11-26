@@ -51,7 +51,7 @@ export function PublicLayout() {
           >
             <icons.ui.back size={20} />
           </button>
-          <h1 className="text-sm font-semibold text-fg">{isTracking ? 'Acompanhar Chamado' : 'Abrir Chamado'}</h1>
+          <h1 className="text-sm font-semibold text-fg">{location.pathname === '/chamados-publico/track' ? 'Meus chamados' : isTracking ? 'Acompanhar Chamado' : 'Abrir Chamado'}</h1>
         </header>
       )}
 

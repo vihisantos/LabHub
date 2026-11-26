@@ -11,6 +11,7 @@ import type { Ticket, TicketStatus } from '../../chamados/types'
 import { CampusHero } from '../components/CampusBackdrop'
 import { FeedbackSheet } from '../components/FeedbackSheet'
 import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
+import { rememberRecentTicket, trackingPath } from '../utils/recentTickets'
 import './TicketSuccess.css'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
@@ -159,6 +160,9 @@ export function TicketSuccess() {
   const [copied, setCopied] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   const [linkCopyError, setLinkCopyError] = useState(false)
+  const [codeVisible, setCodeVisible] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
+  const [codeCopyError, setCodeCopyError] = useState(false)
   const lastStatusRef = useRef(ticket?.status)
 
   const [showRatingModal, setShowRatingModal] = useState(false)
@@ -270,6 +274,7 @@ export function TicketSuccess() {
       }
       const pub = await publicTicketService.submitFeedback(trackingToken, rating, ratingComment.trim())
       setTicket(toTicket(pub))
+      rememberRecentTicket(pub, trackingToken)
       setRatingDone(true)
       setRatingSubmitting(false)
     } catch (err) {
@@ -287,6 +292,7 @@ export function TicketSuccess() {
         const fresh = toTicket(await publicTicketService.getByToken(trackingToken))
         if (!alive) return
         setTicket(fresh)
+        rememberRecentTicket(fresh, trackingToken)
         setFeedbackConfirmed(true)
         setOffline(false)
         setNotFound(false)
@@ -373,14 +379,25 @@ export function TicketSuccess() {
 
   async function handleCopyLink() {
     if (!trackingToken || !ticket) return
-    const url = new URL(`/chamados-publico/success/${encodeURIComponent(ticket.id)}`, window.location.origin)
-    url.hash = new URLSearchParams({ token: trackingToken }).toString()
+    const url = new URL(trackingPath(ticket.id, trackingToken), window.location.origin)
     try {
       await navigator.clipboard.writeText(url.toString())
       setLinkCopied(true)
       setLinkCopyError(false)
     } catch {
       setLinkCopyError(true)
+    }
+  }
+
+  async function handleCopyCode() {
+    if (!trackingToken) return
+    try {
+      await navigator.clipboard.writeText(trackingToken)
+      setCodeCopied(true)
+      setCodeCopyError(false)
+    } catch {
+      setCodeVisible(true)
+      setCodeCopyError(true)
     }
   }
 
@@ -569,19 +586,22 @@ export function TicketSuccess() {
       )}
 
       {trackingToken && (
-        <div className="mt-3 w-full max-w-sm text-center">
-          <button
-            type="button"
-            onClick={handleCopyLink}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-input"
-          >
-            <icons.ui.link size={14} aria-hidden="true" />
-            {linkCopied ? 'Link copiado!' : 'Copiar link de acompanhamento'}
-          </button>
-          <p className="text-[11px] text-fg-muted" role="status">
-            {linkCopyError ? 'Não foi possível copiar o link.' : 'Link privado: quem o receber poderá consultar e avaliar este chamado.'}
-          </p>
-        </div>
+        <section className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card p-4">
+          <h2 className="text-sm font-semibold text-fg">Acesso ao chamado</h2>
+          <p className="mt-1 text-xs text-fg-muted">Guarde o código ou link para consultar em outro dispositivo.</p>
+          <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-fg-muted">Código de acompanhamento</span>
+              <button type="button" onClick={() => setCodeVisible(value => !value)} className="shrink-0 text-[11px] font-medium text-fg" aria-expanded={codeVisible}>{codeVisible ? 'Ocultar' : 'Mostrar'}</button>
+            </div>
+            <p className="mt-1 select-all break-all font-mono text-xs text-fg">{codeVisible ? trackingToken : '••••••••••••' + trackingToken.slice(-6)}</p>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={handleCopyCode} className="flex items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2.5 text-xs font-medium text-fg hover:bg-input"><icons.ui.copy size={14} />{codeCopied ? 'Código copiado!' : 'Copiar código'}</button>
+            <button type="button" onClick={handleCopyLink} className="flex items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2.5 text-xs font-medium text-fg hover:bg-input"><icons.ui.link size={14} />{linkCopied ? 'Link copiado!' : 'Copiar link'}</button>
+          </div>
+          <p className="mt-2 text-[11px] text-fg-muted" role="status">{codeCopyError ? 'Não foi possível copiar. Selecione o código exibido.' : linkCopyError ? 'Não foi possível copiar o link.' : 'Acesso privado: compartilhe apenas com pessoas de confiança.'}</p>
+        </section>
       )}
 
       {feedbackEligible && (

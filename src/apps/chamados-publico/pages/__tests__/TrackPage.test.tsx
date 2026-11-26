@@ -36,6 +36,7 @@ const PUBLIC_TICKET = {
 describe('TrackPage — acompanhamento anônimo via tracking token', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.history.replaceState({}, '', '/chamados-publico/track')
     mockGetByToken.mockResolvedValue(PUBLIC_TICKET)
     mockGetEvents.mockResolvedValue([
       {
@@ -53,7 +54,7 @@ describe('TrackPage — acompanhamento anônimo via tracking token', () => {
   it('busca o chamado pelo código de acompanhamento (token)', async () => {
     render(<TrackPage />)
 
-    fireEvent.change(screen.getByPlaceholderText('Código de acompanhamento'), {
+    fireEvent.change(screen.getByPlaceholderText('Cole o link ou código'), {
       target: { value: 'abc123token' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
@@ -67,7 +68,7 @@ describe('TrackPage — acompanhamento anônimo via tracking token', () => {
   it('mostra o histórico do chamado via endpoint público', async () => {
     render(<TrackPage />)
 
-    fireEvent.change(screen.getByPlaceholderText('Código de acompanhamento'), {
+    fireEvent.change(screen.getByPlaceholderText('Cole o link ou código'), {
       target: { value: 'abc123token' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
@@ -80,11 +81,37 @@ describe('TrackPage — acompanhamento anônimo via tracking token', () => {
     expect(screen.getByText('Técnico a caminho')).toBeInTheDocument()
   })
 
+  it('aceita o link privado completo', async () => {
+    render(<TrackPage />)
+    fireEvent.change(screen.getByPlaceholderText('Cole o link ou código'), {
+      target: { value: window.location.origin + '/chamados-publico/success/ticket-1#token=abc123token' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    await act(async () => {})
+    expect(mockGetByToken).toHaveBeenCalledWith('abc123token')
+    expect(screen.getByText('#6')).toBeInTheDocument()
+  })
+
+  it('mostra chamados salvos sem realizar consultas em lote', () => {
+    localStorage.setItem('chamado_token_old-ticket', 'oldtoken')
+    render(<TrackPage />)
+    expect(screen.getByText('Chamado salvo')).toBeInTheDocument()
+    expect(mockGetByToken).not.toHaveBeenCalled()
+  })
+
+  it('rejeita busca por número público', async () => {
+    render(<TrackPage />)
+    fireEvent.change(screen.getByPlaceholderText('Cole o link ou código'), { target: { value: '123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(mockGetByToken).not.toHaveBeenCalled()
+  })
+
   it('exibe erro quando o token é inválido', async () => {
     mockGetByToken.mockRejectedValue(new Error('Chamado não encontrado'))
     render(<TrackPage />)
 
-    fireEvent.change(screen.getByPlaceholderText('Código de acompanhamento'), {
+    fireEvent.change(screen.getByPlaceholderText('Cole o link ou código'), {
       target: { value: 'invalido' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))

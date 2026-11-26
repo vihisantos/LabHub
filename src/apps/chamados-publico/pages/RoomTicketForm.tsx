@@ -4,6 +4,7 @@ import { workspaceStore } from '../../../core/workspaces/store'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
 import { CampusHero } from '../components/CampusBackdrop'
 import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
+import { rememberRecentTicket } from '../utils/recentTickets'
 import { useAuth } from '../../../core/auth/useAuth'
 import { ticketService } from '../../chamados/services/ticketService'
 import { roomService } from '../../chamados/services/roomService'
@@ -239,6 +240,7 @@ export function RoomTicketForm() {
       // Persistimos para conveniência e passamos pela URL para o success page.
       safeLocalStorageSet(`chamado_token_${ticket.id}`, trackingToken)
       rememberTicketCampus(ticket.id, campusArtworkKey(campus?.name))
+      rememberRecentTicket(ticket, trackingToken, campus?.name)
       navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch (err) {
       setSubmitting(false)
