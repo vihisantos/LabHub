@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+### Docs
+
+* **rbac2:** Etapa 7 atualizada com status pós-ativação e limitação documentada da auditoria específica.
+
+## [2.5.0] (2026-11-26)
+
+### Features
+
+* **chamados-publico:** reformula a abertura por sala e equipamento e a confirmação com banners por campus, degradês, suporte a temas e fallback visual para unidades sem arte ([#542](https://github.com/vihisantos/LabHub/pull/542)).
+* **chamados-publico:** cabeçalho dinâmico com status, nome de exibição do técnico responsável quando disponível, etapas do atendimento, motivos de espera/indeferimento e transições de estado com movimento reduzido.
+* **chamados-publico:** detalhes com descrição original do problema, data e horário de abertura (America/Sao_Paulo) e tempo decorrido para chamados ativos.
+* **chamados-publico:** página Meus chamados com histórico local, busca por token ou link da mesma origem, acesso rápido, remoção local e indicação de avaliações pendentes; status salvo representa a última consulta, sem novas consultas em lote.
+* **chamados-publico:** avaliação em painel animado após resolução/fechamento, solicitada novamente ao reabrir o link sem feedback; dispensa durante a mesma visita.
+* **chamados-publico:** seção para revelar/copiar código privado e copiar link de acompanhamento com token no fragmento da URL; número público permanece apenas identificador.
+
+### Fixes
+
+* **chamados-publico:** remove a ação de copiar o número público, evitando confusão com o token de acesso; torna o painel de avaliação inerte e inacessível durante a animação de saída.
+
+### Performance Improvements
+
+* **chamados-publico:** substitui SVGs com PNG incorporado por três assets WebP (5.618.982 → 394.960 bytes; redução de 92,97%); imports de URL estática e carregamento da imagem selecionada, sem novos serviços de armazenamento.
+
+### Security
+
+* **chamados:** a projeção pública inclui somente o nome de exibição associado ao responsável identificado no servidor, sem adicionar UUID ou e-mail do técnico; acesso continua restrito ao token do chamado.
+
+### Build and CI
+
+* **ci:** atualiza actions de upload/download de artefatos em conjunto (v7/v8) e valida a integridade do artefato de atestação no fluxo de Staging, com comparação de digest/conteúdo, mantendo proteções de produção ([#535](https://github.com/vihisantos/LabHub/pull/535)).
+* **deps-dev:** atualiza @tailwindcss/vite de 4.3.3 para 4.3.5 ([#505](https://github.com/vihisantos/LabHub/pull/505)).
+* **tests:** no HEAD homologado da PR #542, CI registrou 3.431 testes frontend e 2.553 testes Python aprovados, 8 ignorados no total, sem falhas, com lint, build, CodeQL e gate de Staging aprovados.
+
+### Known limitations
+
+* **chamados-publico:** histórico local depende do navegador; identidade visual do campus pode não acompanhar o link em outro dispositivo, pois a projeção pública não retorna o workspace.
+
 ## [2.4.0] (2026-11-10)
 
 ### Features
@@ -67,12 +106,6 @@ All notable changes to this project will be documented in this file. See [standa
 ### Tests
 
 * **rbac2:** backend validation suite (`api/tests/test_rbac.py`, `test_rbac_routes.py`, `test_rbac_etapa6.py`) green locally.
-
-## [Unreleased]
-
-### Docs
-
-* **rbac2:** Etapa 7 atualizada com status pós-ativação e limitação documentada da auditoria específica.
 
 ## [2.1.0](https://github.com/vihisantos/LabHub/compare/v2.0.0...v2.1.0) (2026-08-16)
 
