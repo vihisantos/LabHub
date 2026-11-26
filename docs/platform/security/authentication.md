@@ -42,7 +42,6 @@ interface Profile {
   status: 'active' | 'pending'
   is_super_admin: boolean
   workspace_ids: string[]
-  app_access: Record<string, 'full' | 'read' | 'none'>
   notify_settings: Record<string, boolean>
   avatar: string
   banner: string
@@ -74,7 +73,7 @@ A autenticação acima (Supabase Auth + perfil `pending`/`active`) segue valendo
 - Camada autoritativa do backend, **sempre ativa** (ON-only, deny-by-default)
 - Autorização granular por **Action** resolvida contra a `membership` do usuário no workspace
 - Super Admin (`profiles.is_super_admin`) é capacidade de plataforma global, não uma role de workspace
-- O modelo legado (`profiles.role` + `app_access`) **não autoriza mais nada no backend** — serve apenas para compatibilidade de frontend
+- `profiles.role` é compatibilidade de identidade de cargo, não autoridade de autorização. `profiles.app_access` foi removido pela migration 084; visibilidade e autorização usam RBAC 2.0.
 
 ## Relacionados
 

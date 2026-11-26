@@ -1,4 +1,3 @@
-import type { AppAccessOverride } from '../permissions/types'
 import type { Membership } from '../permissions/membership'
 
 export type Accent = 'emerald' | 'cyan' | 'blue' | 'purple'
@@ -74,8 +73,6 @@ export interface User {
   membershipsLoaded?: boolean
   accent: Accent
   theme_variant: ThemeVariant
-  /** Override individual de acesso por aplicativo — sobrescreve o cargo */
-  app_access?: Partial<Record<string, AppAccessOverride>>
   /** Preferências de notificação (canais por app, mudo) */
   notify_settings?: UserNotifySettings
   /** Modo da tela inicial: compacto (cards grandes) ou dinâmico (módulos + ações rápidas) */

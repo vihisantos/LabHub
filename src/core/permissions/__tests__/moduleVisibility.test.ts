@@ -213,10 +213,10 @@ describe('a nova fonte NÃO consulta o legado', () => {
   it('funciona com app_access e roleId legado COMPLETAMENTE divergentes', async () => {
     // O usuário mente no legado: diz que é coordinator e que não tem acesso a
     // nada. A fonte nova tem que responder pelo slug da MEMBERSHIP (tec).
-    const lying = user({
-      roleId: 'role-coordinator',
+    const lying = {
+      ...user({ roleId: 'role-coordinator' }),
       app_access: { 'pc-care': 'none', stock: 'none', chamados: 'none', dashboard: 'full' },
-    } as Partial<User>)
+    }
 
     const pcCare = await resolveModuleVisibility({
       user: lying,

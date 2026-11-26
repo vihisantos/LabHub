@@ -74,20 +74,18 @@ describe('buildPushUser — não depende da fonte legada (F2-D-N1 §6)', () => {
   it('apps sai vazio, sem níveis e sem override', () => {
     // Um usuário que no legado teria 'full' em tudo continua enviando {}.
     const payload = buildPushUser(
-      makeUser({
-        app_access: { chamados: 'full', reservalab: 'full', stock: 'full' },
-      } as Partial<User>),
+      { ...makeUser(), app_access: { chamados: 'full', reservalab: 'full', stock: 'full' } } as User & { app_access: Record<string, string> },
     )
     expect(payload.apps).toEqual({})
   })
 
-  it('alterar User.app_access não muda o payload', () => {
+  it('payload legado inesperado app_access não muda o payload', () => {
     const sem = buildPushUser(makeUser())
     const comFull = buildPushUser(
-      makeUser({ app_access: { chamados: 'full' } } as Partial<User>),
+      { ...makeUser(), app_access: { chamados: 'full' } } as User & { app_access: Record<string, string> },
     )
     const comNone = buildPushUser(
-      makeUser({ app_access: { chamados: 'none' } } as Partial<User>),
+      { ...makeUser(), app_access: { chamados: 'none' } } as User & { app_access: Record<string, string> },
     )
     // Nenhuma chave do payload pode depender do override individual.
     expect(comFull.apps).toEqual(sem.apps)

@@ -21,7 +21,7 @@ flowchart TD
 
 1. **RBAC 2.0** (backend, sempre ativo) — autorização granular por Action
 2. **Gate de aplicação** — verificação de `disabled_apps` no workspace
-3. **Cargo legado** — `profiles.role` combinado com `AppAccessLevel` (`dash`/`read`/`full`)
+3. **Visibilidade de módulo** — membership ativa, slug do cargo e matriz RBAC 2.0; não concede Actions de escrita
 4. **RLS** — segurança em nível de linha para isolamento de workspace (sempre ativa)
 
 ## RBAC 2.0

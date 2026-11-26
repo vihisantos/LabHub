@@ -42,7 +42,6 @@ interface Profile {
   status: 'active' | 'pending'
   is_super_admin: boolean
   workspace_ids: string[]
-  app_access: Record<string, 'full' | 'read' | 'none'>
   notify_settings: Record<string, boolean>
   avatar: string
   banner: string
