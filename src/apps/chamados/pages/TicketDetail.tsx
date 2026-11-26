@@ -14,6 +14,7 @@ import { slaConfigService } from '../services/slaConfigService'
 import { getPriority, getSlaInfo } from '../services/sla'
 import { ticketService, errorStatus } from '../services/ticketService'
 import { Stars } from '../components/Stars'
+import { TicketEventHistory } from '../components/TicketEventHistory'
 import { icons } from '../../../lib/icons'
 import { useCanAccessAction } from '../../../core/permissions/usePermissions'
 import { useLeadership } from '../../../core/permissions/useLeadership'
@@ -1049,42 +1050,7 @@ export function TicketDetail() {
         ) : events.length === 0 ? (
           <p className="text-xs text-fg-dim">Nenhum registro ainda</p>
         ) : (
-          <div className="space-y-3">
-            {events.map((ev) => (
-              <div key={ev.id} className="flex items-start gap-3">
-                <div
-                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-                    ev.type === 'status'
-                      ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
-                      : 'bg-fg-muted/10 text-fg-muted'
-                  }`}
-                >
-                  {ev.type === 'status' ? <icons.ui.clock size={12} /> : <icons.ui.user size={12} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-[11px] font-semibold text-fg">{ev.author}</p>
-                    <span className="shrink-0 text-[10px] text-fg-dim">{formatDate(ev.createdAt)}</span>
-                  </div>
-                  {ev.content && <p className="mt-0.5 text-xs text-fg-muted">{ev.content}</p>}
-                  {ev.photos.length > 0 && (
-                    <div className="mt-2 flex gap-2">
-                      {ev.photos.map((url, i) => (
-                        <button
-                          key={`${ev.id}-${i}`}
-                          type="button"
-                          onClick={() => setLightbox(url)}
-                          className="h-16 w-16 overflow-hidden rounded-lg border border-line"
-                        >
-                          <img src={url} alt={`Foto do evento ${i + 1}`} className="h-full w-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <TicketEventHistory events={events} onPhotoClick={setLightbox} />
         )}
       </div>
 
