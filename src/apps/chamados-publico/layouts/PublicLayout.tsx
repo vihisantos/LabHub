@@ -21,6 +21,7 @@ export function PublicLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const isRoot = location.pathname === '/chamados-publico' || location.pathname === '/chamados-publico/'
+  const isTracking = location.pathname.startsWith('/chamados-publico/success/') || location.pathname === '/chamados-publico/track'
   const bannerRef = useRef<HTMLDivElement>(null)
   const [bannerHeight, setBannerHeight] = useState(0)
 
@@ -50,7 +51,7 @@ export function PublicLayout() {
           >
             <icons.ui.back size={20} />
           </button>
-          <h1 className="text-sm font-semibold text-fg">Abrir Chamado</h1>
+          <h1 className="text-sm font-semibold text-fg">{location.pathname === '/chamados-publico/track' ? 'Meus chamados' : isTracking ? 'Acompanhar Chamado' : 'Abrir Chamado'}</h1>
         </header>
       )}
 

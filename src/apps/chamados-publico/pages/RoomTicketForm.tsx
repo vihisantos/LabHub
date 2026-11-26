@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
+import { CampusHero } from '../components/CampusBackdrop'
+import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
+import { rememberRecentTicket } from '../utils/recentTickets'
 import { useAuth } from '../../../core/auth/useAuth'
 import { ticketService } from '../../chamados/services/ticketService'
 import { roomService } from '../../chamados/services/roomService'
@@ -236,6 +239,8 @@ export function RoomTicketForm() {
       // O tracking token é a credencial do professor (acesso ao próprio chamado).
       // Persistimos para conveniência e passamos pela URL para o success page.
       safeLocalStorageSet(`chamado_token_${ticket.id}`, trackingToken)
+      rememberTicketCampus(ticket.id, campusArtworkKey(campus?.name))
+      rememberRecentTicket(ticket, trackingToken, campus?.name)
       navigate(`/chamados-publico/success/${ticket.id}?token=${encodeURIComponent(trackingToken)}`)
     } catch (err) {
       setSubmitting(false)
@@ -267,10 +272,10 @@ export function RoomTicketForm() {
   }
 
   return (
-    <div className="min-h-dvh bg-surface px-4 pt-6 pb-10">
-      <div className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
-        <p className="mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
+    <div className="min-h-dvh bg-surface px-4 pb-10">
+      <CampusHero campus={campusArtworkKey(campus?.name)} className="-mx-4 mb-6">
+        <h1 className="campus-hero__title text-xl font-bold text-fg">Abrir Chamado</h1>
+        <p className="campus-hero__subtitle mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
         <button
           type="button"
           onClick={() => setTourVisible(true)}
@@ -279,7 +284,7 @@ export function RoomTicketForm() {
           <icons.ui.alertCircle size={12} />
           Como funciona?
         </button>
-      </div>
+      </CampusHero>
 
       {error && (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3">

@@ -11,6 +11,7 @@ function renderLayout(path: string) {
       <Route element={<PublicLayout />}>
         <Route path="/chamados-publico" element={<div>inicio</div>} />
         <Route path="/chamados-publico/new" element={<div>formulario</div>} />
+        <Route path="/chamados-publico/success/:ticketId" element={<div>status</div>} />
       </Route>
     </Routes>,
     { initialEntries: [path] },
@@ -18,6 +19,12 @@ function renderLayout(path: string) {
 }
 
 describe('PublicLayout', () => {
+  it('usa título de acompanhamento na confirmação', () => {
+    renderLayout('/chamados-publico/success/t-1')
+    expect(screen.getByText('Acompanhar Chamado')).toBeInTheDocument()
+    expect(screen.queryByText('Abrir Chamado')).not.toBeInTheDocument()
+  })
+
   it('na raiz não mostra o cabeçalho de voltar', () => {
     renderLayout('/chamados-publico')
     expect(screen.getByText('inicio')).toBeInTheDocument()

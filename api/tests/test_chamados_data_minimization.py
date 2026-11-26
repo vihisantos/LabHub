@@ -467,7 +467,8 @@ class TestPublico:
         projeção pública não pode passar a vazá-la por omissão."""
         row = _ticket()
         projetado = api_module._project_public_ticket(row)
-        # tudo que a projeção entrega tem que estar na allowlist interna
-        assert set(projetado) <= set(api_module.CHAMADOS_TICKET_READ_COLS)
+        # A única exceção é o nome de exibição derivado da atribuição validada.
+        assert projetado["technicianName"] == row["assignedTo"]
+        assert set(projetado) - {"technicianName"} <= set(api_module.CHAMADOS_TICKET_READ_COLS)
         # e o conjunto público é bem menor que o interno
         assert len(projetado) < len(api_module.CHAMADOS_TICKET_READ_COLS)

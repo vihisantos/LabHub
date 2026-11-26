@@ -8,6 +8,12 @@ import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
+import { CampusHero } from '../components/CampusBackdrop'
+import { FeedbackSheet } from '../components/FeedbackSheet'
+import { campusArtworkLabel, readTicketCampus } from '../utils/campusArtwork'
+import { rememberRecentTicket, trackingPath } from '../utils/recentTickets'
+import { TicketOpenedAt } from '../components/TicketOpenedAt'
+import './TicketSuccess.css'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
   aberto: 'Aguardando técnico',
@@ -19,7 +25,18 @@ const STATUS_MESSAGES: Record<TicketStatus, string> = {
   fechado: 'Chamado concluído',
 }
 
+const STATUS_HERO = {
+  aberto: { title: 'Chamado enviado!', description: 'Seu chamado foi registrado. Ele está aguardando atendimento da equipe.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  a_caminho: { title: 'Técnico a caminho!', description: 'A equipe de TI está a caminho para atender você.', Icon: icons.ui.mapPin, color: 'bg-orange-500/15 text-orange-400' },
+  em_atendimento: { title: 'Estamos cuidando disso!', description: 'Seu chamado está em atendimento.', Icon: icons.nav.parts, color: 'bg-blue-500/15 text-blue-400' },
+  em_espera: { title: 'Atendimento em espera', description: 'Acompanhe as atualizações da equipe por aqui.', Icon: icons.ui.clock, color: 'bg-violet-500/15 text-violet-400' },
+  resolvido: { title: 'Problema resolvido!', description: 'A equipe marcou seu chamado como resolvido.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  fechado: { title: 'Chamado concluído!', description: 'O atendimento foi encerrado.', Icon: icons.ui.checkCircle, color: 'bg-emerald-500/15 text-emerald-500' },
+  indeferido: { title: 'CHAMADO INDEFERIDO', description: 'Este chamado não será atendido pela equipe de TI.', Icon: icons.ui.close, color: 'bg-red-500/15 text-red-500' },
+} satisfies Record<TicketStatus, { title: string; description: string; Icon: typeof icons.ui.checkCircle; color: string }>
+
 const POLL_INTERVAL_MS = 15000
+const FEEDBACK_PROMPT_DELAY_MS = 480
 
 function statusMessage(ticket: Ticket): string {
   return (ticket.statusNote || STATUS_MESSAGES[ticket.status] || '').trim()
@@ -126,7 +143,9 @@ export function TicketSuccess() {
   // Lido da URL e do localStorage; removido da URL imediatamente (replaceState).
   const [trackingToken] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search)
-    const urlToken = params.get('token')
+    // Links de compartilhamento usam fragmento: a credencial não vai ao servidor.
+    const fragment = new URLSearchParams(window.location.hash.slice(1))
+    const urlToken = fragment.get('token') || params.get('token')
     const stored = urlToken || safeLocalStorageGet(`chamado_token_${ticketId ?? ''}`)
     if (urlToken && ticketId) {
       safeLocalStorageSet(`chamado_token_${ticketId}`, urlToken)
@@ -139,7 +158,11 @@ export function TicketSuccess() {
   const [offline, setOffline] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
-  const [copied, setCopied] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [linkCopyError, setLinkCopyError] = useState(false)
+  const [codeVisible, setCodeVisible] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
+  const [codeCopyError, setCodeCopyError] = useState(false)
   const lastStatusRef = useRef(ticket?.status)
 
   const [showRatingModal, setShowRatingModal] = useState(false)
@@ -149,6 +172,41 @@ export function TicketSuccess() {
   const [ratingDone, setRatingDone] = useState(false)
   const [ratingError, setRatingError] = useState('')
   const hasShownRatingRef = useRef(false)
+  const [feedbackConfirmed, setFeedbackConfirmed] = useState(false)
+  const feedbackEligible = feedbackConfirmed && !!trackingToken && !notFound && !!ticket &&
+    (ticket.status === 'resolvido' || ticket.status === 'fechado') && !ticket.feedbackRating && !ratingDone
+
+  // One automatic prompt per visit, after the token-scoped API confirms the
+  // current ticket. A reload/remount asks again if feedback is still missing.
+  useEffect(() => {
+    if (!feedbackEligible || showRatingModal || hasShownRatingRef.current) return
+    const timer = window.setTimeout(() => {
+      hasShownRatingRef.current = true
+      setShowRatingModal(true)
+    }, FEEDBACK_PROMPT_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [feedbackEligible, showRatingModal])
+
+  useEffect(() => {
+    if (!feedbackEligible && !ratingDone && showRatingModal && !ratingSubmitting) {
+      setShowRatingModal(false)
+    }
+  }, [feedbackEligible, ratingDone, showRatingModal, ratingSubmitting])
+
+  useEffect(() => {
+    if (!ratingDone) return
+    const timer = window.setTimeout(() => setShowRatingModal(false), 1500)
+    return () => window.clearTimeout(timer)
+  }, [ratingDone])
+
+  function openFeedback() {
+    hasShownRatingRef.current = true
+    setShowRatingModal(true)
+  }
+
+  function closeFeedback() {
+    if (!ratingSubmitting) setShowRatingModal(false)
+  }
 
   /* Inicialização do push state — isolada do fluxo crítico */
   useEffect(() => {
@@ -204,17 +262,8 @@ export function TicketSuccess() {
     }
   }
 
-  function maybeShowRating(next: Ticket) {
-    const wasResolved = lastStatusRef.current === 'resolvido' || lastStatusRef.current === 'fechado'
-    const isNowResolved = next.status === 'resolvido' || next.status === 'fechado'
-    if (!wasResolved && isNowResolved && !next.feedbackRating && !hasShownRatingRef.current) {
-      hasShownRatingRef.current = true
-      setShowRatingModal(true)
-    }
-  }
-
   async function handleSubmitRating() {
-    if (!ticket || rating < 1) return
+    if (!ticket || !feedbackEligible || rating < 1 || ratingSubmitting) return
     setRatingSubmitting(true)
     setRatingError('')
     try {
@@ -225,8 +274,9 @@ export function TicketSuccess() {
       }
       const pub = await publicTicketService.submitFeedback(trackingToken, rating, ratingComment.trim())
       setTicket(toTicket(pub))
+      rememberRecentTicket(pub, trackingToken)
       setRatingDone(true)
-      setTimeout(() => setShowRatingModal(false), 1500)
+      setRatingSubmitting(false)
     } catch (err) {
       setRatingError(err instanceof Error ? err.message : 'Erro ao enviar. Tente novamente.')
       setRatingSubmitting(false)
@@ -242,11 +292,12 @@ export function TicketSuccess() {
         const fresh = toTicket(await publicTicketService.getByToken(trackingToken))
         if (!alive) return
         setTicket(fresh)
+        rememberRecentTicket(fresh, trackingToken)
+        setFeedbackConfirmed(true)
         setOffline(false)
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== fresh.status) {
           showStatusNotification(fresh)
-          maybeShowRating(fresh)
         }
         lastStatusRef.current = fresh.status
       } catch (err) {
@@ -276,7 +327,6 @@ export function TicketSuccess() {
         setNotFound(false)
         if (lastStatusRef.current && lastStatusRef.current !== updated.status) {
           showStatusNotification(updated)
-          maybeShowRating(updated)
         }
         lastStatusRef.current = updated.status
       }
@@ -304,53 +354,78 @@ export function TicketSuccess() {
 
   const statusMsg = statusMessage(ticket)
   const concluded = ticket.status === 'resolvido' || ticket.status === 'fechado'
+  const campus = readTicketCampus(ticket.id)
+  const campusName = campusArtworkLabel(campus)
+  const hero = STATUS_HERO[ticket.status] ?? STATUS_HERO.aberto
+  const StatusIcon = hero.Icon
+  const declined = ticket.status === 'indeferido'
+  const technician = ticket.assignedTo?.trim()
+  const heroTitle = technician && ticket.status === 'a_caminho'
+    ? `Técnico ${technician} está a caminho!`
+    : hero.title
+  const heroDescription = technician && ticket.status === 'em_atendimento'
+    ? `Técnico ${technician} está atendendo seu chamado.`
+    : hero.description
+  const elapsedMinutes = Math.floor((Date.now() - new Date(ticket.createdAt).getTime()) / 60000)
+  const elapsed = Number.isFinite(elapsedMinutes) && elapsedMinutes >= 0
+    ? elapsedMinutes < 1 ? 'menos de 1 min' : elapsedMinutes < 60 ? `${elapsedMinutes} min` : `${Math.floor(elapsedMinutes / 60)} h ${elapsedMinutes % 60} min`
+    : undefined
+  const steps = [
+    { label: 'Registro', current: ticket.status === 'aberto' },
+    { label: 'Deslocamento', current: ticket.status === 'a_caminho' },
+    { label: 'Atendimento', current: ticket.status === 'em_atendimento' },
+    { label: 'Conclusão', current: concluded },
+  ]
 
-  async function handleCopyNumber() {
-    if (!ticket) return
-    const text = `#${ticket.ticketNumber || '?'} — ${ticket.roomName} — ${ticket.problemCategory}`
+  async function handleCopyLink() {
+    if (!trackingToken || !ticket) return
+    const url = new URL(trackingPath(ticket.id, trackingToken), window.location.origin)
     try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(url.toString())
+      setLinkCopied(true)
+      setLinkCopyError(false)
     } catch {
-      // Fallback silencioso
+      setLinkCopyError(true)
+    }
+  }
+
+  async function handleCopyCode() {
+    if (!trackingToken) return
+    try {
+      await navigator.clipboard.writeText(trackingToken)
+      setCodeCopied(true)
+      setCodeCopyError(false)
+    } catch {
+      setCodeVisible(true)
+      setCodeCopyError(true)
     }
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
-      {ticket.status === 'indeferido' ? (
-        // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
-        // indeferimento, nunca apresentado como chamado resolvido.
-        <>
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-500/15">
-            <icons.ui.close size={40} className="text-red-500" />
+    <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pb-8">
+      <CampusHero campus={campus} variant="success" className="-mx-5 self-stretch">
+        <div aria-live="polite" aria-atomic="true">
+          <div key={ticket.status} className="ticket-status-hero">
+            <div className={`ticket-status-icon mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full ${hero.color}`}>
+              <StatusIcon size={40} aria-hidden="true" />
+            </div>
+            <div className="ticket-status-copy">
+              <h1 className={`campus-hero__title text-2xl font-bold ${declined ? 'campus-hero__title--error text-red-600 dark:text-red-400' : 'text-fg'}`}>{heroTitle}</h1>
+              <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">{heroDescription}</p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</h1>
-          <p className="mt-2 text-sm text-fg-muted">Este chamado não será atendido pela equipe de TI.</p>
-        </>
-      ) : (
-        <>
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
-            <icons.ui.checkCircle size={40} className="text-emerald-500" />
-          </div>
+        </div>
+        {campusName && (
+          <p className="campus-hero__subtitle mt-3 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-fg-muted">
+            <icons.ui.mapPin size={14} aria-hidden="true" />
+            {campusName}
+          </p>
+        )}
+      </CampusHero>
 
-          <h1 className="text-2xl font-bold text-fg">Chamado enviado!</h1>
-          <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
-        </>
-      )}
-
-      <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
+      <div className="mt-4 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
           <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
-          <button
-            type="button"
-            onClick={handleCopyNumber}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 transition-colors hover:bg-emerald-500/20"
-            title={copied ? 'Copiado!' : 'Copiar número'}
-          >
-            {copied ? <icons.ui.circleCheck size={16} /> : <icons.ui.copy size={16} />}
-          </button>
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">
@@ -376,6 +451,12 @@ export function TicketSuccess() {
             <span className="text-fg-muted">Problema</span>
             <span className="font-medium text-fg">{ticket.problemCategory}</span>
           </div>
+          {ticket.problemDescription?.trim() && (
+            <div className="space-y-1 border-t border-line pt-3">
+              <p className="text-xs font-medium text-fg-muted">Descrição do problema</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{ticket.problemDescription}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -385,16 +466,30 @@ export function TicketSuccess() {
           <span className="flex items-center gap-1.5 text-[10px] text-fg-dim">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                offline ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'
+                offline ? 'bg-red-500' : 'bg-emerald-500 motion-safe:animate-pulse'
               }`}
             />
             {offline ? 'Sem conexão — tenta de novo automaticamente' : 'Atualiza automaticamente'}
           </span>
         </div>
 
-        <div className="mt-3">
-          {ticket.status === 'indeferido' ? (
-            // Issue #367 — motivo estruturado + observação do indeferimento.
+        {!declined && (
+          <ol aria-label="Etapas possíveis do atendimento" className="mt-4 grid grid-cols-4 gap-1">
+            {steps.map((step, index) => (
+              <li key={step.label} aria-current={step.current ? 'step' : undefined} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
+                {index > 0 && <span aria-hidden="true" className="absolute right-1/2 top-3 h-px w-full bg-line" />}
+                <span className={`ticket-status-step relative z-10 flex h-6 w-6 items-center justify-center rounded-full border ${step.current ? 'ticket-status-step--current' : ''} ${step.current || index === 0 ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-line bg-card text-fg-muted'}`}>
+                  {index === 0 ? <icons.ui.check size={13} aria-hidden="true" /> : <span className="text-[10px]">{index + 1}</span>}
+                </span>
+                <span className={`text-[10px] leading-tight ${step.current ? 'font-semibold text-fg' : 'text-fg-muted'}`}>{step.label}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <div key={ticket.status} className="ticket-status-details mt-3">
+          {ticket.status === 'indeferido' || ticket.status === 'em_espera' ? (
+            // Motivo estruturado e observação de espera/indeferimento.
             <div className="space-y-2">
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${TICKET_STATUS_COLORS[ticket.status]}`}
@@ -402,11 +497,12 @@ export function TicketSuccess() {
                 {TICKET_STATUS_LABELS[ticket.status]}
               </span>
               {ticket.reasonLabel && (
-                <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-600 dark:text-red-400">
+                <p className={`rounded-lg px-3 py-2 text-xs font-semibold ${declined ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-violet-500/10 text-violet-600 dark:text-violet-400'}`}>
                   Motivo: {ticket.reasonLabel}
                 </p>
               )}
               {ticket.reasonNote && <p className="text-xs text-fg-muted">{ticket.reasonNote}</p>}
+              {!ticket.reasonLabel && !ticket.reasonNote && statusMsg && <p className="text-sm font-medium text-fg">{statusMsg}</p>}
             </div>
           ) : (
             <>
@@ -420,17 +516,25 @@ export function TicketSuccess() {
           )}
         </div>
 
-        <p className="mt-3 border-t border-line pt-3 text-[10px] text-fg-dim">
+        {technician && !declined && (
+          <div className="mt-3 flex items-center gap-2 border-t border-line pt-3 text-sm">
+            <icons.ui.user size={16} className="shrink-0 text-fg-muted" aria-hidden="true" />
+            <span className="text-fg-muted">Técnico responsável</span>
+            <span className="ml-auto break-words text-right font-medium text-fg">{technician}</span>
+          </div>
+        )}
+        <TicketOpenedAt createdAt={ticket.createdAt} elapsed={!concluded && !declined ? elapsed : undefined} prominent />
+        <p className="mt-2 text-[11px] text-fg-muted">
           {concluded
             ? 'Seu chamado foi concluído. Obrigado!'
-            : 'Pode fechar esta página — o andamento fica registrado. Volte quando quiser para ver o status.'}
+            : declined ? 'Consulte o motivo informado pela equipe.' : 'Pode fechar esta página — o andamento fica registrado. Volte quando quiser para ver o status.'}
           {ticket.updatedAt && (
-            <span className="ml-1 text-fg-dim">Atualizado às {formatTime(ticket.updatedAt)}.</span>
+            <span className="ml-1 text-fg-muted">Atualizado às {formatTime(ticket.updatedAt)}.</span>
           )}
         </p>
       </div>
 
-      {isPushSupported() && !concluded && !isLoggedIn && (
+      {isPushSupported() && !concluded && !declined && !isLoggedIn && (
         <div className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card px-4 py-3">
           {pushState === 'on' ? (
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -458,44 +562,72 @@ export function TicketSuccess() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => navigate('/chamados-publico/track')}
-        className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium transition-colors hover:bg-input"
-      >
-        <icons.ui.circleCheck size={18} className="text-emerald-500" />
-        Acompanhar e avaliar depois
-      </button>
+      {trackingToken && (
+        <section className="mt-3 w-full max-w-sm rounded-2xl border border-line bg-card p-4">
+          <h2 className="text-sm font-semibold text-fg">Acesso ao chamado</h2>
+          <p className="mt-1 text-xs text-fg-muted">Guarde o código ou link para consultar em outro dispositivo.</p>
+          <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-fg-muted">Código de acompanhamento</span>
+              <button type="button" onClick={() => setCodeVisible(value => !value)} className="shrink-0 text-[11px] font-medium text-fg" aria-expanded={codeVisible}>{codeVisible ? 'Ocultar' : 'Mostrar'}</button>
+            </div>
+            <p className="mt-1 select-all break-all font-mono text-xs text-fg">{codeVisible ? trackingToken : '••••••••••••' + trackingToken.slice(-6)}</p>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" onClick={handleCopyCode} className="flex items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2.5 text-xs font-medium text-fg hover:bg-input"><icons.ui.copy size={14} />{codeCopied ? 'Código copiado!' : 'Copiar código'}</button>
+            <button type="button" onClick={handleCopyLink} className="flex items-center justify-center gap-1.5 rounded-lg border border-line px-2 py-2.5 text-xs font-medium text-fg hover:bg-input"><icons.ui.link size={14} />{linkCopied ? 'Link copiado!' : 'Copiar link'}</button>
+          </div>
+          <p className="mt-2 text-[11px] text-fg-muted" role="status">{codeCopyError ? 'Não foi possível copiar. Selecione o código exibido.' : linkCopyError ? 'Não foi possível copiar o link.' : 'Acesso privado: compartilhe apenas com pessoas de confiança.'}</p>
+        </section>
+      )}
+
+      {feedbackEligible && (
+        <button
+          type="button"
+          onClick={openFeedback}
+          className="mt-3 flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-line bg-card px-6 py-3 text-sm font-medium text-fg transition-colors hover:bg-input"
+        >
+          <icons.ui.star size={18} className="text-amber-500" />
+          Avaliar atendimento
+        </button>
+      )}
 
       <button
         type="button"
         onClick={() => navigate('/chamados-publico')}
-        className="mt-8 flex items-center gap-2 rounded-xl bg-card px-6 py-3 text-sm font-medium shadow-[var(--shadow-card)] transition-colors hover:bg-input"
+        className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl border border-line px-5 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-input hover:text-fg"
       >
-        <icons.ui.scanBarcode size={18} />
-        {ticket.assetName ? 'Escanear outro QR' : 'Abrir outro chamado'}
+        <icons.ui.plus size={18} />
+        Abrir outro chamado
       </button>
 
-      {showRatingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-5">
-          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-2xl">
+      <button
+        type="button"
+        onClick={() => navigate('/chamados-publico/track')}
+        className="mt-3 text-xs text-fg-muted underline-offset-4 hover:underline"
+      >
+        Consultar outros chamados
+      </button>
+
+      <FeedbackSheet open={showRatingModal && (feedbackEligible || ratingDone)} onClose={closeFeedback}>
+          <div className="px-6 pb-4 pt-2">
             {ratingDone ? (
-              <div className="flex flex-col items-center py-4">
+              <div className="ticket-status-copy flex flex-col items-center py-6" role="status">
                 <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15">
                   <icons.ui.checkCircle size={28} className="text-emerald-500" />
                 </div>
-                <p className="text-sm font-semibold text-fg">Obrigado!</p>
+                <p className="text-lg font-semibold text-fg">Obrigado!</p>
                 <p className="mt-1 text-xs text-fg-muted">Sua avaliação foi registrada.</p>
               </div>
             ) : (
               <>
                 <div className="mb-1 text-center">
-                  <p className="text-sm font-bold text-fg">Como foi o atendimento?</p>
+                  <h2 className="text-lg font-bold text-fg">Como foi o atendimento?</h2>
                   <p className="mt-0.5 text-xs text-fg-muted">Chamado #{ticket.ticketNumber || '?'}</p>
                 </div>
 
                 <div className="mt-4 flex justify-center">
-                  <Stars value={rating} onChange={setRating} size={28} />
+                  <Stars value={rating} onChange={setRating} size={32} disabled={ratingSubmitting} />
                 </div>
                 <p className="mt-1 text-center text-[11px] text-fg-dim">
                   {rating === 0
@@ -512,6 +644,8 @@ export function TicketSuccess() {
                 <textarea
                   value={ratingComment}
                   onChange={(e) => setRatingComment(e.target.value)}
+                  aria-label="Comentário (opcional)"
+                  disabled={ratingSubmitting}
                   placeholder="Comentário (opcional)"
                   rows={2}
                   maxLength={500}
@@ -525,7 +659,8 @@ export function TicketSuccess() {
                 <div className="mt-4 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowRatingModal(false)}
+                    onClick={closeFeedback}
+                    disabled={ratingSubmitting}
                     className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-xs font-medium text-fg-muted transition-colors hover:bg-input"
                   >
                     Agora não
@@ -542,8 +677,7 @@ export function TicketSuccess() {
               </>
             )}
           </div>
-        </div>
-      )}
+      </FeedbackSheet>
     </div>
   )
 }

@@ -4609,7 +4609,11 @@ def chamados_reports():
 
 def _project_public_ticket(t: dict) -> dict:
     """Projeção segura do chamado para o professor (sem campos internos)."""
+    # Nome de exibição associado ao responsável validado pelo servidor.
+    # Não exponha o UUID, e-mail, perfil ou o campo interno de atribuição.
+    technician_name = str(t.get('assignedTo') or '').strip() if t.get('assignedToUserId') else ''
     return {
+        'technicianName': technician_name or None,
         'id': t.get('id'),
         'ticketNumber': t.get('ticketNumber'),
         'status': t.get('status'),

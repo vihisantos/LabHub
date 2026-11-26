@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, act } from '@testing-library/react'
+import { screen, act, fireEvent } from '@testing-library/react'
 import { Routes, Route } from 'react-router-dom'
 import { renderWithProviders } from '../../../../test/helpers'
 import type { Ticket } from '../../../chamados/types'
@@ -74,6 +74,7 @@ function renderSuccess() {
 beforeEach(() => {
   vi.clearAllMocks()
   authState.user = null
+  sessionStorage.clear()
   vi.stubGlobal('Notification', {
     permission: 'default',
     requestPermission: vi.fn().mockResolvedValue('default'),
@@ -91,6 +92,19 @@ afterEach(() => {
 })
 
 describe('TicketSuccess', () => {
+  it('mostra campus da sessão e estado real de espera', async () => {
+    sessionStorage.setItem('labhub:campus-artwork:t-1', 'piracicaba')
+    const ticket = makeTicket({ status: 'em_espera', reasonLabel: 'Aguardando peça' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.getByText('Anhembi Piracicaba')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Atendimento em espera' })).toBeInTheDocument()
+    expect(screen.getByText('Motivo: Aguardando peça')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avaliar atendimento' })).not.toBeInTheDocument()
+  })
+
   it('chamado não encontrado mostra erro', async () => {
     mockGetById.mockReturnValue(null)
     mockGetByToken.mockRejectedValue(new Error('não encontrado'))
@@ -108,10 +122,37 @@ describe('TicketSuccess', () => {
     expect(screen.getByText('Chamado enviado!')).toBeInTheDocument()
     expect(screen.getByText('#1')).toBeInTheDocument()
     expect(screen.getByText('Sala 101')).toBeInTheDocument()
+    expect(screen.getByText('Data e horário de abertura')).toBeInTheDocument()
+    expect(screen.getByText('25/06/2026 às 07:00')).toBeInTheDocument()
+    expect(screen.getByText('Descrição do problema')).toBeInTheDocument()
+    expect(screen.getByText('Sem conexão')).toBeInTheDocument()
     expect(screen.getByText('PC-01')).toBeInTheDocument()
     expect(screen.getByText('Aberto')).toBeInTheDocument()
     expect(screen.getByText('Atualiza automaticamente')).toBeInTheDocument()
-    expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+    expect(screen.queryByText('Acompanhar e avaliar depois')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir outro chamado' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar outros chamados' })).toBeInTheDocument()
+  })
+
+  it('preserva a descrição original e não renderiza HTML informado pelo solicitante', async () => {
+    const description = 'Sem internet\n<script>alert(1)</script>'
+    const ticket = makeTicket({ problemDescription: description })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    const { container } = renderSuccess()
+    await act(async () => {})
+    const detail = screen.getByText('Descrição do problema').nextElementSibling
+    expect(detail?.textContent).toBe(description)
+    expect(container.querySelector('script')).toBeNull()
+  })
+
+  it('oculta a seção quando não há descrição', async () => {
+    const ticket = makeTicket({ problemDescription: '   ' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.queryByText('Descrição do problema')).not.toBeInTheDocument()
   })
 
   it('busca o status pelo token (polling) e atualiza ao vivo', async () => {
@@ -123,8 +164,57 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(mockGetByToken).toHaveBeenCalledWith('tok')
+    expect(screen.getByRole('heading', { name: 'Estamos cuidando disso!' })).toBeInTheDocument()
     expect(screen.getByText('Em atendimento')).toBeInTheDocument()
     expect(screen.getByText('Técnico a caminho')).toBeInTheDocument()
+  })
+
+  it('mostra nome do técnico a caminho e destaca apenas a etapa atual', async () => {
+    const ticket = makeTicket({ status: 'a_caminho', assignedTo: 'Ana' })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: 'Técnico Ana está a caminho!' })).toBeInTheDocument()
+    expect(screen.getByText('Ana')).toBeInTheDocument()
+    expect(screen.getByText('Deslocamento').closest('li')).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('Atendimento').closest('li')).not.toHaveAttribute('aria-current')
+  })
+
+  it('reinicia a animação apenas quando o status muda, preservando o banner e os detalhes', async () => {
+    vi.useFakeTimers()
+    try {
+      sessionStorage.setItem('labhub:campus-artwork:t-1', 'piracicaba')
+      mockGetById.mockReturnValue(makeTicket())
+      const { container, unmount } = renderSuccess()
+      try {
+        await act(async () => {})
+        const initialHero = container.querySelector('.ticket-status-hero')
+        const initialStatus = container.querySelector('.ticket-status-details')
+        const artwork = container.querySelector('.campus-backdrop__image')
+        const description = screen.getByText('Sem conexão')
+        expect(initialHero).toBeTruthy()
+        expect(initialStatus).toBeTruthy()
+        expect(artwork).toBeTruthy()
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+        expect(container.querySelector('.ticket-status-hero')).toBe(initialHero)
+        expect(container.querySelector('.ticket-status-details')).toBe(initialStatus)
+
+        mockGetByToken.mockResolvedValue(makeTicket({ status: 'a_caminho', assignedTo: 'Ana' }))
+        await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+        expect(screen.getByRole('heading', { name: 'Técnico Ana está a caminho!' })).toBeInTheDocument()
+        expect(container.querySelector('.ticket-status-hero')).not.toBe(initialHero)
+        expect(container.querySelector('.ticket-status-details')).not.toBe(initialStatus)
+        expect(screen.getByText('Deslocamento').closest('li')?.querySelector('.ticket-status-step--current')).toBeTruthy()
+        expect(container.querySelector('.campus-backdrop__image')).toBe(artwork)
+        expect(screen.getByText('Sem conexão')).toBe(description)
+      } finally {
+        unmount()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('indica ausência de conexão quando o polling falha', async () => {
@@ -145,6 +235,52 @@ describe('TicketSuccess', () => {
     await act(async () => {})
 
     expect(screen.getByText('Seu chamado foi concluído. Obrigado!')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Problema resolvido!' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+  })
+
+  it.each(['resolvido', 'fechado'] as const)('solicita feedback ao reabrir chamado %s sem avaliação', async (status) => {
+    const ticket = makeTicket({ status })
+    mockGetById.mockReturnValue(null)
+    mockGetByToken.mockResolvedValue(ticket)
+    const first = renderSuccess()
+    await act(async () => {})
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agora não' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    first.unmount()
+    renderSuccess()
+    await act(async () => {})
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
+  })
+
+  it('não solicita feedback quando já existe uma avaliação', async () => {
+    const ticket = makeTicket({ status: 'resolvido', feedbackRating: 5 })
+    mockGetById.mockReturnValue(ticket)
+    mockGetByToken.mockResolvedValue(ticket)
+    renderSuccess()
+    await act(async () => {})
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Avaliar atendimento' })).not.toBeInTheDocument()
+  })
+
+  it('espera a animação do status antes de solicitar feedback ao resolver', async () => {
+    mockGetById.mockReturnValue(makeTicket())
+    renderSuccess()
+    await act(async () => {})
+    mockGetByToken.mockResolvedValue(makeTicket({ status: 'resolvido' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+    expect(screen.getByRole('heading', { name: 'Problema resolvido!' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(500) })
+    expect(screen.getByRole('dialog', { name: 'Avaliar atendimento' })).toBeInTheDocument()
   })
 
   it('(A) Notification indisponível — renderiza sem crash', async () => {
@@ -267,12 +403,14 @@ describe('TicketSuccess', () => {
     delete (window as unknown as Record<string, unknown>).PushManager
   })
 
-  it('(H) Navegação pós-criação funciona — botão de acompanhar está visível', async () => {
+  it('(H) Navegação pós-criação oferece ações secundárias sem duplicar acompanhamento', async () => {
     mockGetById.mockReturnValue(makeTicket())
     renderSuccess()
     await act(async () => {})
 
-    expect(screen.getByText('Acompanhar e avaliar depois')).toBeInTheDocument()
+    expect(screen.queryByText('Acompanhar e avaliar depois')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir outro chamado' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar outros chamados' })).toBeInTheDocument()
   })
 
   it('logado não vê o botão "notificação deste chamado" (recebe pela inscrição de app)', async () => {
