@@ -157,7 +157,6 @@ export function TicketSuccess() {
   const [offline, setOffline] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [pushState, setPushState] = useState<'off' | 'on' | 'denied' | 'loading'>('off')
-  const [copied, setCopied] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   const [linkCopyError, setLinkCopyError] = useState(false)
   const [codeVisible, setCodeVisible] = useState(false)
@@ -401,18 +400,6 @@ export function TicketSuccess() {
     }
   }
 
-  async function handleCopyNumber() {
-    if (!ticket) return
-    const text = `#${ticket.ticketNumber || '?'} — ${ticket.roomName} — ${ticket.problemCategory}`
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Fallback silencioso
-    }
-  }
-
   return (
     <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pb-8">
       <CampusHero campus={campus} variant="success" className="-mx-5 self-stretch">
@@ -438,14 +425,6 @@ export function TicketSuccess() {
       <div className="mt-4 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
           <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
-          <button
-            type="button"
-            onClick={handleCopyNumber}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500 transition-colors hover:bg-emerald-500/20"
-            title={copied ? 'Copiado!' : 'Copiar número'}
-          >
-            {copied ? <icons.ui.circleCheck size={16} /> : <icons.ui.copy size={16} />}
-          </button>
         </div>
 
         <div className="space-y-3 border-t border-line pt-4">
