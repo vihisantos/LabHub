@@ -35,6 +35,12 @@
   z-index: -1;
   pointer-events: none;
   overflow: hidden;
+  /* Fade the entire artwork layer, including its scrim, into the page.
+     Transparent end stops avoid a hard seam in either theme. */
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 52%, rgb(0 0 0 / 60%) 70%, transparent 94%);
+}
+.campus-backdrop--success {
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 18%, #000 62%, rgb(0 0 0 / 60%) 78%, transparent 96%);
 }
 .campus-backdrop__image {
   display: block;
@@ -48,10 +54,10 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgb(0 0 0 / 26%) 0%, rgb(0 0 0 / 56%) 48%, rgb(0 0 0 / 50%) 63%, var(--bg-primary) 100%);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 12%), rgb(0 0 0 / 62%) 48%, rgb(0 0 0 / 34%) 100%);
 }
 .campus-backdrop--success::after {
-  background: linear-gradient(to bottom, rgb(0 0 0 / 15%) 0%, rgb(0 0 0 / 45%) 45%, rgb(0 0 0 / 52%) 68%, var(--bg-primary) 100%);
+  background: linear-gradient(to bottom, rgb(0 0 0 / 10%), rgb(0 0 0 / 58%) 52%, rgb(0 0 0 / 30%) 100%);
 }
 @keyframes campus-artwork-in {
   from { opacity: 0; }
