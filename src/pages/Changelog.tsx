@@ -18,6 +18,85 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    version: 'v2.4.0 · 26/11',
+    date: '26 de novembro de 2026',
+    title: 'Uma nova experiência para abrir e acompanhar chamados',
+    bugs: [
+      {
+        id: 'public-copy-number-20261126',
+        type: 'bug',
+        title: 'Número do chamado sem confusão',
+        desc: 'Removido o botão de copiar o número público para distingui-lo do código privado de acompanhamento.',
+        done: true,
+      },
+      {
+        id: 'public-feedback-dismiss-20261126',
+        type: 'bug',
+        title: 'Fechamento da avaliação corrigido',
+        desc: 'O painel deixa de aceitar interação durante a animação de saída e não volta a aparecer a cada atualização automática.',
+        done: true,
+      },
+    ],
+    melhorias: [
+      {
+        id: 'campus-banners-20261126',
+        type: 'melhoria',
+        title: 'Novo visual na abertura de chamados',
+        desc: 'As telas de abertura e acompanhamento ganharam imagens dos campi de Piracicaba, Mooca e São José dos Campos, com transições suaves e sem prejudicar a leitura dos campos.',
+        done: true,
+      },
+      {
+        id: 'public-live-status-20261126',
+        type: 'melhoria',
+        title: 'Acompanhamento mais claro e animado',
+        desc: 'O título, o ícone e as etapas acompanham o status do chamado. Quando informado, o nome do técnico responsável aparece durante o atendimento, junto aos motivos de espera ou indeferimento.',
+        done: true,
+      },
+      {
+        id: 'public-ticket-details-20261126',
+        type: 'melhoria',
+        title: 'Detalhes do chamado mais completos',
+        desc: 'A descrição escrita pelo solicitante aparece junto à categoria do problema, sala e área. A data e o horário de abertura são destacados, com tempo decorrido para chamados ativos.',
+        done: true,
+      },
+      {
+        id: 'public-recent-tickets-20261126',
+        type: 'melhoria',
+        title: 'Meus chamados',
+        desc: 'Consulte os chamados salvos neste navegador, veja o último status consultado, encontre avaliações pendentes e abra cada atendimento para atualizar as informações. Também é possível remover registros locais.',
+        done: true,
+      },
+      {
+        id: 'public-private-tracking-20261126',
+        type: 'melhoria',
+        title: 'Acesso por link ou código privado',
+        desc: 'Copie o link ou o código de acompanhamento para consultar o chamado em outro dispositivo. A busca aceita ambos; o número do chamado continua sendo apenas uma identificação.',
+        done: true,
+      },
+      {
+        id: 'public-feedback-sheet-20261126',
+        type: 'melhoria',
+        title: 'Nova experiência de avaliação',
+        desc: 'Ao concluir o atendimento, a avaliação aparece em um painel animado. Se não houver avaliação, ela será solicitada novamente ao reabrir o link, sem insistir durante a mesma visita.',
+        done: true,
+      },
+      {
+        id: 'public-webp-20261126',
+        type: 'melhoria',
+        title: 'Imagens mais leves',
+        desc: 'As três imagens dos campi foram otimizadas para WebP, reduzindo seu tamanho total de 5,62 MB para 395 KB (aproximadamente 93%), sem alterar o layout.',
+        done: true,
+      },
+      {
+        id: 'public-tracking-ux-20261126',
+        type: 'melhoria',
+        title: 'Navegação e acessibilidade aprimoradas',
+        desc: 'Estados vazios, mensagens de busca e erro mais claros, contraste e animações que respeitam a preferência de movimento reduzido.',
+        done: true,
+      },
+    ],
+  },
+  {
     version: 'v2.4.0',
     date: '10 de novembro de 2026',
     title: 'Uma experiência mais clara e uma nova estrutura para o LabHub',
