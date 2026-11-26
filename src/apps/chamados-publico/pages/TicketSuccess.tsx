@@ -8,7 +8,7 @@ import { TICKET_STATUS_LABELS, TICKET_STATUS_COLORS } from '../../chamados/types
 import { useRealtimeSubscription } from '../../../lib/useRealtimeSubscription'
 import { useAuth } from '../../../core/auth/useAuth'
 import type { Ticket, TicketStatus } from '../../chamados/types'
-import { CampusBackdrop } from '../components/CampusBackdrop'
+import { CampusHero } from '../components/CampusBackdrop'
 import { readTicketCampus } from '../utils/campusArtwork'
 
 const STATUS_MESSAGES: Record<TicketStatus, string> = {
@@ -320,30 +320,31 @@ export function TicketSuccess() {
   }
 
   return (
-    <div className="relative isolate flex min-h-dvh flex-col items-center bg-surface px-5 pt-16 pb-8">
-      <CampusBackdrop campus={readTicketCampus(ticket.id)} variant="success" />
-      {ticket.status === 'indeferido' ? (
-        // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
-        // indeferimento, nunca apresentado como chamado resolvido.
-        <>
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-500/15">
-            <icons.ui.close size={40} className="text-red-500" />
-          </div>
-          <h1 className="text-2xl font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</h1>
-          <p className="mt-2 text-sm text-fg-muted">Este chamado não será atendido pela equipe de TI.</p>
-        </>
-      ) : (
-        <>
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
-            <icons.ui.checkCircle size={40} className="text-emerald-500" />
-          </div>
+    <div className="flex min-h-dvh flex-col items-center bg-surface px-5 pb-8">
+      <CampusHero campus={readTicketCampus(ticket.id)} variant="success" className="-mx-5 self-stretch">
+        {ticket.status === 'indeferido' ? (
+          // Issue #367 — X vermelho em destaque: o solicitante vê claramente o
+          // indeferimento, nunca apresentado como chamado resolvido.
+          <>
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-red-500/15">
+              <icons.ui.close size={40} className="text-red-500" />
+            </div>
+            <h1 className="campus-hero__title campus-hero__title--error text-2xl font-bold text-red-600 dark:text-red-400">CHAMADO INDEFERIDO</h1>
+            <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">Este chamado não será atendido pela equipe de TI.</p>
+          </>
+        ) : (
+          <>
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500/15">
+              <icons.ui.checkCircle size={40} className="text-emerald-500" />
+            </div>
 
-          <h1 className="text-2xl font-bold text-fg">Chamado enviado!</h1>
-          <p className="mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
-        </>
-      )}
+            <h1 className="campus-hero__title text-2xl font-bold text-fg">Chamado enviado!</h1>
+            <p className="campus-hero__subtitle mt-2 text-sm text-fg-muted">Seu chamado foi registrado. Ele está aguardando atendimento da equipe.</p>
+          </>
+        )}
+      </CampusHero>
 
-      <div className="mt-8 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
+      <div className="mt-4 w-full max-w-sm rounded-2xl bg-card p-5 shadow-[var(--shadow-card)]">
         <div className="mb-4 flex items-center justify-center gap-3">
           <span className="text-3xl font-bold text-emerald-500">#{ticket.ticketNumber || '?'}</span>
           <button

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { workspaceStore } from '../../../core/workspaces/store'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
-import { CampusBackdrop } from '../components/CampusBackdrop'
+import { CampusHero } from '../components/CampusBackdrop'
 import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
 import { useAuth } from '../../../core/auth/useAuth'
 import { ticketService } from '../../chamados/services/ticketService'
@@ -270,11 +270,10 @@ export function RoomTicketForm() {
   }
 
   return (
-    <div className="relative isolate min-h-dvh bg-surface px-4 pt-6 pb-10">
-      <CampusBackdrop campus={campusArtworkKey(campus?.name)} />
-      <div className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
-        <p className="mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
+    <div className="min-h-dvh bg-surface px-4 pb-10">
+      <CampusHero campus={campusArtworkKey(campus?.name)} className="-mx-4 mb-6">
+        <h1 className="campus-hero__title text-xl font-bold text-fg">Abrir Chamado</h1>
+        <p className="campus-hero__subtitle mt-1 text-sm text-fg-muted">Leva menos de 1 minuto</p>
         <button
           type="button"
           onClick={() => setTourVisible(true)}
@@ -283,7 +282,7 @@ export function RoomTicketForm() {
           <icons.ui.alertCircle size={12} />
           Como funciona?
         </button>
-      </div>
+      </CampusHero>
 
       {error && (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3">

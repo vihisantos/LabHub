@@ -4,7 +4,7 @@ import { useRoomAssets } from '../../chamados/hooks/useRoomAssets'
 import { roomService } from '../../chamados/services/roomService'
 import { ticketService } from '../../chamados/services/ticketService'
 import { usePublicWorkspaces } from '../hooks/usePublicWorkspaces'
-import { CampusBackdrop } from '../components/CampusBackdrop'
+import { CampusHero } from '../components/CampusBackdrop'
 import { campusArtworkKey, rememberTicketCampus } from '../utils/campusArtwork'
 import { icons } from '../../../lib/icons'
 import type { TicketFormData } from '../../chamados/types'
@@ -189,11 +189,10 @@ export function TicketForm() {
   }
 
   return (
-    <div className="relative isolate min-h-dvh bg-surface px-4 pt-6 pb-8">
-      <CampusBackdrop campus={campusArtworkKey(workspaces.find((w) => w.id === campusId)?.name)} />
-      <div className="mb-6 text-center">
-        <h1 className="text-xl font-bold text-fg">Abrir Chamado</h1>
-      </div>
+    <div className="min-h-dvh bg-surface px-4 pb-8">
+      <CampusHero campus={campusArtworkKey(workspaces.find((w) => w.id === campusId)?.name)} className="-mx-4 mb-6">
+        <h1 className="campus-hero__title text-xl font-bold text-fg">Abrir Chamado</h1>
+      </CampusHero>
 
       {Object.keys(fieldErrors).length > 0 && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
