@@ -115,7 +115,9 @@ afterEach(() => {
 async function openChamados() {
   fireEvent.click(screen.getByText('Chamados'))
   await waitFor(() => {
-    expect(screen.getByText(/com acesso/)).toBeInTheDocument()
+    expect(screen.getByText('2 usuários com acesso')).toBeInTheDocument()
+    expect(screen.getByText('Ana')).toBeInTheDocument()
+    expect(screen.getByText('Beto')).toBeInTheDocument()
   })
 }
 
@@ -133,8 +135,8 @@ describe('NotificationRulesTab — escopo por memberships', () => {
     fireEvent.change(selects[0], { target: { value: 'ws-a' } })
     await waitFor(() => {
       expect(screen.queryByText('Beto')).not.toBeInTheDocument()
+      expect(screen.getByText('Ana')).toBeInTheDocument()
     })
-    expect(screen.getByText('Ana')).toBeInTheDocument()
   })
 
   it('escopo segue memberships, não workspace_ids', async () => {
@@ -151,7 +153,7 @@ describe('NotificationRulesTab — escopo por memberships', () => {
     fireEvent.change(selects[0], { target: { value: 'ws-a' } })
     await waitFor(() => {
       expect(screen.getByText('Ana')).toBeInTheDocument()
+      expect(screen.queryByText('Beto')).not.toBeInTheDocument()
     })
-    expect(screen.queryByText('Beto')).not.toBeInTheDocument()
   })
 })

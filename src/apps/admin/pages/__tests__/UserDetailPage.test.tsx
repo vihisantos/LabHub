@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 const mockAdminService = vi.hoisted(() => ({
@@ -364,7 +364,7 @@ describe('UserDetailPage', () => {
       expect(mockAdminService.setMembership).toHaveBeenCalledWith('u-123', 'ws-sjc', 'role-technician')
     })
     expect(mockAdminService.setMembership).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Cargo atualizado')).toBeInTheDocument()
+    expect(await screen.findByText('Cargo atualizado')).toBeInTheDocument()
   })
 
   it('remover uma unidade não remove as demais', async () => {
@@ -380,7 +380,7 @@ describe('UserDetailPage', () => {
       await waitFor(() => {
         expect(mockAdminService.removeMembership).toHaveBeenCalledWith('u-123', 'ws-mooca')
       })
-      expect(screen.getByText('Acesso removido')).toBeInTheDocument()
+      expect(await screen.findByText('Acesso removido')).toBeInTheDocument()
     } finally {
       confirmSpy.mockRestore()
     }
@@ -436,7 +436,7 @@ describe('UserDetailPage', () => {
         'u-123', 'ws-mooca', 'm-lider-ws-mooca',
       )
     })
-    expect(screen.getByText('Responsável atualizado')).toBeInTheDocument()
+    expect(await screen.findByText('Responsável atualizado')).toBeInTheDocument()
   })
 
   it('só cargos de liderança são oferecidos como responsável', async () => {
@@ -452,18 +452,27 @@ describe('UserDetailPage', () => {
       }],
       membershipsLoaded: true,
     }
-    mockAdminService.listAllProfiles.mockResolvedValue([activeUser, tecUser])
-    mockMembershipsFromFixtures([activeUser, tecUser])
+    const leaderUser = {
+      ...tecUser,
+      id: 'u-lider',
+      name: 'Líder Léo',
+      email: 'leo@mooca.edu.br',
+      roleId: 'role-lider',
+      memberships: [{
+        ...tecUser.memberships[0],
+        id: 'm-lider-ws-mooca', profile_id: 'u-lider', role_id: 'r-b',
+      }],
+    }
+    mockAdminService.listAllProfiles.mockResolvedValue([activeUser, tecUser, leaderUser])
+    mockMembershipsFromFixtures([activeUser, tecUser, leaderUser])
 
     renderPage()
 
-    // O filtro roda após carregar os cargos (não confundir com "ainda carregando")
-    await waitFor(() => {
-      expect(mockResolveRoleInfo).toHaveBeenCalled()
-    })
     const managerSelect = await screen.findByRole('combobox', { name: 'Responsável em Campus Mooca' })
-    // Técnico não é liderança (trigger 045+046) → só "Sem responsável"
-    expect(managerSelect.querySelectorAll('option')).toHaveLength(1)
-    expect(screen.queryByText(/Nico/)).not.toBeInTheDocument()
+    // Positive control: the leader option proves role resolution has completed;
+    // merely observing a mock call could pass while every candidate is still hidden.
+    expect(await within(managerSelect).findByRole('option', { name: 'Líder Léo · Líder' })).toBeInTheDocument()
+    expect(within(managerSelect).getAllByRole('option')).toHaveLength(2)
+    expect(within(managerSelect).queryByRole('option', { name: /Nico/ })).not.toBeInTheDocument()
   })
 })
