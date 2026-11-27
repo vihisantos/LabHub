@@ -114,10 +114,14 @@ interface ProgrammingContextValue {
   ready: boolean
   /** Erro de descoberta/sincronização (ex.: pasta não configurada). */
   discoveryError: string | null
+  /** Biblioteca existe, mas nenhum item acadêmico está elegível (cooldown). */
+  isWaitingForEligible: boolean
 }
 
 export const LIBRARY_REFRESH_MS = 60_000
 export const VIDEO_COOLDOWN_MS = 10 * 60_000
+/** Reavaliação leve durante a espera: sem novo timer por item e sem reinício. */
+export const COOLDOWN_RECHECK_MS = 1_000
 
 function isCoolingDown(
   item: ProgrammingQueueItem, history: Record<string, number>, now: number,
@@ -200,6 +204,15 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   const [failedIds, setFailedIds] = useState<string[]>([])
   /** Falha transitória de leitura da pasta: impede sobrescrever o estado salvo. */
   const [readError, setReadError] = useState<string | null>(null)
+
+  // Espelhos dos estados usados por callbacks periódicos: evitam recriar o
+  // intervalo de varredura/cooldown a cada render e leem sempre o valor atual.
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+  const positionRef = useRef(position)
+  positionRef.current = position
+  const failedIdsRef = useRef(failedIds)
+  failedIdsRef.current = failedIds
 
   const [fixedContent, setFixedContent] = useState<ProgrammingQueueItem[]>([])
   const [informativos, setInformativos] = useState<TvInformativo[]>([])
@@ -476,72 +489,86 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     setFailedIds(function(prev) { return prev.includes(id) ? prev : [...prev, id] })
   }, [])
 
-  const advance = useCallback(function() {
+  /**
+   * Aplica uma alteração já confirmada do Drive. Pode ser chamada no limite da
+   * sequência (`advance`) ou durante a espera por cooldown, quando não há
+   * vídeo acadêmico em reprodução para ser interrompido.
+   */
+  const applyPendingLibrary = useCallback(function(): boolean {
     const pending = pendingFilesRef.current
-    if (pending) {
-      pendingFilesRef.current = null
-      candidateFingerprintRef.current = null
-      const previous = new Map(appliedFilesRef.current.map(f => [f.path, mediaFingerprint(f)]))
-      const changed = new Set(pending.filter(f => previous.get(f.path) !== mediaFingerprint(f)).map(f => localId(f.path)))
-      const survivingIds = new Set(pending.map(f => localId(f.path)))
-      const failures = failedIds.filter(id => survivingIds.has(id) && !changed.has(id))
-      const discovery = discoverLocalStructure(pending)
-      discoveryRef.current = discovery
-      appliedFilesRef.current = pending
-      setFailedIds(failures)
-      const nextFixed = discovery.fixed.map((f): ProgrammingQueueItem => ({
-        id: f.id, type: 'fixed', file_path: f.file_path, file_name: f.file_name,
-        file_type: f.file_type, duration_seconds: f.duration_seconds, is_trailer: false, is_fixed: true,
-      }))
-      setFixedContent(nextFixed)
-      setCompletedFixedIds(ids => ids.filter(id => nextFixed.some(f => f.id === id) && !changed.has(id)))
-      const informativoIds = new Set(discovery.informativos.map(i => i.id))
-      setCompletedInformativoIds(ids => ids.filter(id => informativoIds.has(id) && !changed.has(id)))
-      setInformativos(discovery.informativos)
-      setGalleries(discovery.galleries)
-      setPhotosMap(discovery.photosMap)
-      setDiscoveryError(discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0
-        ? 'Nenhum conteúdo encontrado na pasta sincronizada do Drive.' : null)
-      setLibraryVersion(new Date().toISOString())
-      const available = buildLocalQueue(discovery.courses, failures)
-      const byId = new Map(available.map(item => [item.id, item]))
-      const oldIds = new Set(queue.map(item => item.id))
-      const before = queue.slice(0, position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
-      const after = queue.slice(position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
-      const additions = available.filter(item => !oldIds.has(item.id))
-      const lastCourseId = before[before.length - 1]?.course_id
-      if (after.length + additions.length > 0) {
-        setQueue([...before, ...after, ...additions])
-        const merged = [...before, ...after, ...additions]
-        const eligible = nextEligiblePosition(merged, before.length, historyRef.current, failures, Date.now(), lastCourseId)
-        if (eligible < merged.length) {
-          setPosition(eligible)
-          setCompletedIds(ids => ids.filter(id => byId.has(id)))
-        } else {
-          setQueue(available)
-          setPosition(nextEligiblePosition(available, 0, historyRef.current, failures))
-          setCompletedIds([])
-        }
+    if (!pending) return false
+    pendingFilesRef.current = null
+    candidateFingerprintRef.current = null
+    const currentQueue = queueRef.current
+    const currentPosition = positionRef.current
+    const knownFailures = failedIdsRef.current
+    const previous = new Map(appliedFilesRef.current.map(f => [f.path, mediaFingerprint(f)]))
+    const changed = new Set(pending.filter(f => previous.get(f.path) !== mediaFingerprint(f)).map(f => localId(f.path)))
+    const survivingIds = new Set(pending.map(f => localId(f.path)))
+    const failures = knownFailures.filter(id => survivingIds.has(id) && !changed.has(id))
+    const discovery = discoverLocalStructure(pending)
+    discoveryRef.current = discovery
+    appliedFilesRef.current = pending
+    setFailedIds(failures)
+    const nextFixed = discovery.fixed.map((f): ProgrammingQueueItem => ({
+      id: f.id, type: 'fixed', file_path: f.file_path, file_name: f.file_name,
+      file_type: f.file_type, duration_seconds: f.duration_seconds, is_trailer: false, is_fixed: true,
+    }))
+    setFixedContent(nextFixed)
+    setCompletedFixedIds(ids => ids.filter(id => nextFixed.some(f => f.id === id) && !changed.has(id)))
+    const informativoIds = new Set(discovery.informativos.map(i => i.id))
+    setCompletedInformativoIds(ids => ids.filter(id => informativoIds.has(id) && !changed.has(id)))
+    setInformativos(discovery.informativos)
+    setGalleries(discovery.galleries)
+    setPhotosMap(discovery.photosMap)
+    setDiscoveryError(discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0
+      ? 'Nenhum conteúdo encontrado na pasta sincronizada do Drive.' : null)
+    setLibraryVersion(new Date().toISOString())
+    const available = buildLocalQueue(discovery.courses, failures)
+    const byId = new Map(available.map(item => [item.id, item]))
+    const oldIds = new Set(currentQueue.map(item => item.id))
+    const before = currentQueue.slice(0, currentPosition + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
+    const after = currentQueue.slice(currentPosition + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
+    const additions = available.filter(item => !oldIds.has(item.id))
+    const lastCourseId = before[before.length - 1]?.course_id
+    if (after.length + additions.length > 0) {
+      const merged = [...before, ...after, ...additions]
+      setQueue(merged)
+      const eligible = nextEligiblePosition(merged, before.length, historyRef.current, failures, Date.now(), lastCourseId)
+      if (eligible < merged.length) {
+        setPosition(eligible)
+        setCompletedIds(ids => ids.filter(id => byId.has(id)))
       } else {
-        const last = queue[position]?.id
-        if (available.length > 1 && available[0].id === last) {
-          available.push(available.shift()!)
-        }
         setQueue(available)
-        setPosition(nextEligiblePosition(available, 0, historyRef.current, failures, Date.now(), lastCourseId))
+        setPosition(nextEligiblePosition(available, 0, historyRef.current, failures))
         setCompletedIds([])
       }
-      return
+    } else {
+      const last = currentQueue[currentPosition]?.id
+      if (available.length > 1 && available[0].id === last) {
+        available.push(available.shift()!)
+      }
+      setQueue(available)
+      setPosition(nextEligiblePosition(available, 0, historyRef.current, failures, Date.now(), lastCourseId))
+      setCompletedIds([])
     }
-    if (queue.length === 0) {
+    return true
+  }, [])
+
+  const advance = useCallback(function() {
+    if (applyPendingLibrary()) return
+    const currentQueue = queueRef.current
+    const currentPosition = positionRef.current
+    const knownFailures = failedIdsRef.current
+    if (currentQueue.length === 0) {
       setPosition(0)
       return
     }
 
     const next = nextEligiblePosition(
-      queue, position + 1, historyRef.current, failedIds, Date.now(), queue[position]?.course_id,
+      currentQueue, currentPosition + 1, historyRef.current, knownFailures, Date.now(), currentQueue[currentPosition]?.course_id,
     )
-    if (next < queue.length) {
+    if (next < currentQueue.length) {
       setPosition(next)
       return
     }
@@ -554,9 +581,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
     // Nova rodada com ordem diferente: sem isso a TV repetiria exatamente a
     // mesma sequência em todos os ciclos.
-    const playable = queue.filter(function(i) { return !failedIds.includes(i.id) })
+    const playable = currentQueue.filter(function(i) { return !knownFailures.includes(i.id) })
     // Remove definitivamente a mídia quebrada mesmo quando só um item resta.
-    if (playable.length !== queue.length) {
+    if (playable.length !== currentQueue.length) {
       setQueue(playable)
     }
     if (playable.length > 1) {
@@ -572,11 +599,28 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         }
       }
       setQueue(newOrder)
-      setPosition(nextEligiblePosition(newOrder, 0, historyRef.current, failedIds))
+      setPosition(nextEligiblePosition(newOrder, 0, historyRef.current, knownFailures))
     } else {
-      setPosition(nextEligiblePosition(playable, 0, historyRef.current, failedIds))
+      setPosition(nextEligiblePosition(playable, 0, historyRef.current, knownFailures))
     }
-  }, [queue, position, failedIds])
+  }, [applyPendingLibrary])
+
+  /**
+   * Durante a espera, reaplica mudanças confirmadas e verifica se o cooldown
+   * liberou algum vídeo. Não toca contadores nem avança a fila: apenas escolhe
+   * o primeiro item elegível para retomar a programação.
+   */
+  const resumeFromIdle = useCallback(function() {
+    if (applyPendingLibrary()) return
+    const currentQueue = queueRef.current
+    if (currentQueue.length === 0 || currentQueue[positionRef.current]) return
+    const eligible = nextEligiblePosition(
+      currentQueue, 0, historyRef.current, failedIdsRef.current, Date.now(),
+    )
+    if (eligible < currentQueue.length && eligible !== positionRef.current) {
+      setPosition(eligible)
+    }
+  }, [applyPendingLibrary])
 
   // Repara a seleção de fixos se uma atualização remover o próximo comercial
   // ou se ele tiver falhado ao carregar (mídia inválida não entra na rodada).
@@ -594,8 +638,13 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   const markCurrentCompleted = useCallback(function() {
     const current = queue[position]
     // Durante o fallback de cooldown não há conteúdo acadêmico em andamento:
-    // relógio/clima não podem consumir contadores nem avançar a fila.
-    if (!current) return
+    // relógio/clima não podem consumir contadores nem avançar a fila. Ainda
+    // assim, este é um limite seguro para aplicar mudanças do Drive e retomar
+    // assim que houver item elegível — sem exigir reinício do aplicativo.
+    if (!current) {
+      resumeFromIdle()
+      return
+    }
     // Falha de mídia não conta como conteúdo assistido nem entra em `completedIds`.
     if (failedIds.includes(current.id)) {
       advance()
@@ -637,7 +686,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       }
     }
     advance()
-  }, [queue, position, advance, failedIds, academicSinceLastFixed, playableFixed, nextFixedId, pickNextFixedId])
+  }, [queue, position, advance, failedIds, academicSinceLastFixed, playableFixed, nextFixedId, pickNextFixedId, resumeFromIdle])
 
   // Chamado pelo TvDisplay ao concluir um informativo: zera o contador e
   // registra o ID na rodada, para não repetir o mesmo aviso.
@@ -684,6 +733,19 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     queue.length > 0 &&
     academicSinceLastInformativo >= INFORMATIVO_INTERVAL
   )
+  /** Há biblioteca, mas o cooldown bloqueou todos os itens: modo de espera. */
+  const isWaitingForEligible = ready && queue.length > 0 && currentItem === null
+
+  // Reavalia a espera sem reiniciar: um único intervalo (criado apenas no modo
+  // de espera) aplica mudanças confirmadas do Drive e verifica a expiração do
+  // cooldown. A varredura do Drive continua em LIBRARY_REFRESH_MS, paralela.
+  useEffect(function() {
+    // inclui a biblioteca inicialmente vazia: ela também precisa sair da espera
+    // quando o primeiro arquivo sincronizado é confirmado.
+    if (!ready || readError || currentItem !== null) return
+    const timer = window.setInterval(function() { resumeFromIdle() }, COOLDOWN_RECHECK_MS)
+    return function() { window.clearInterval(timer) }
+  }, [ready, readError, currentItem, resumeFromIdle])
 
   /* ── Salvamento periódico do estado (JSON durável local) ── */
   useEffect(function() {
@@ -731,6 +793,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     photosMap,
     ready,
     discoveryError,
+    isWaitingForEligible,
   }
 
   return (

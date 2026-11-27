@@ -28,17 +28,21 @@ import { SeasonalEffects } from '../components/SeasonalEffects'
  * fase simplesmente não entra na sequência.
  *
  * SLIDES ESPECIAIS (ClockSlide e WeatherSlideEnhanced):
- * - ClockSlide: a cada 4 conteúdos, 12 segundos
- * - WeatherSlideEnhanced: a cada 8 conteúdos, 15 segundos
+ * - ClockSlide: a cada 4 conteúdos, 20 segundos (45 s na espera por cooldown)
+ * - WeatherSlideEnhanced: a cada 8 conteúdos, 30 segundos (60 s na espera)
  * - Conta TODO conteúdo exibido: acadêmico, fixo e informativo. Slides
  *   especiais e galerias NÃO contam como conteúdo.
  * - O slide entra imediatamente depois do conteúdo que fecha o marco
  * - Quando coincidem (múltiplo de 8), ambos são exibidos sequencialmente
+ * - Se um vídeo voltar a ficar elegível, a espera termina no limite do slide
+ *   atual e a vinheta volta a abrir o conteúdo acadêmico.
  */
 
 // Duration constants (in milliseconds)
-const CLOCK_DISPLAY_MS = 12000
-const WEATHER_DISPLAY_MS = 15000
+export const CLOCK_DISPLAY_MS = 20_000
+export const WEATHER_DISPLAY_MS = 30_000
+export const CLOCK_WAIT_DISPLAY_MS = 45_000
+export const WEATHER_WAIT_DISPLAY_MS = 60_000
 
 export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string } = {}) {
   const programming = useProgramming()
@@ -58,6 +62,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     photosMap,
     ready,
     discoveryError,
+    isWaitingForEligible = false,
     markCurrentCompleted,
     reportMediaFailure,
     resetInformativoCounter,
@@ -120,7 +125,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     const seq: Phase[] = []
     // Todos os vídeos acadêmicos ainda em cooldown: espera com slides, sem
     // tocar vinhetas avulsas ou consumir os contadores acadêmicos.
-    if (ready && queue.length > 0 && !currentItem) {
+    if (isWaitingForEligible) {
       return [{ type: 'clock' }, { type: 'weather-enhanced' }]
     }
 
@@ -174,7 +179,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     }
 
     return seq.length > 0 ? seq : ready ? [{ type: 'clock' }, { type: 'weather-enhanced' }] : [{ type: 'video', item: null }]
-  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries, ready, queue.length])
+  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries, ready, queue.length, isWaitingForEligible])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
@@ -183,6 +188,17 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   const informativoCompletedRef = useRef<string | null>(null)
   const currentPhase = phaseSequence[phaseIdx]
   const isVideoPhase = currentPhase?.type === 'video'
+
+  // A espera por cooldown e a programação normal têm sequências diferentes.
+  // Ao trocar de uma para outra, recomeçamos no limite (nunca no meio de um
+  // vídeo): a volta sempre começa pela vinheta do conteúdo elegível.
+  const wasWaitingRef = useRef(isWaitingForEligible)
+  useEffect(function() {
+    if (wasWaitingRef.current === isWaitingForEligible) return
+    wasWaitingRef.current = isWaitingForEligible
+    setPhaseIdx(0)
+    informativoCompletedRef.current = null
+  }, [isWaitingForEligible])
 
   const PHOTO_DISPLAY_MS = 15000
   const installAtBoundary = useSignedTvUpdate(ready)
@@ -299,8 +315,12 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   const currentPhaseDurationMs = useMemo(function() {
     if (!currentPhase) return null
-    if (currentPhase.type === 'weather-enhanced') return WEATHER_DISPLAY_MS
-    if (currentPhase.type === 'clock') return CLOCK_DISPLAY_MS
+    if (currentPhase.type === 'weather-enhanced') {
+      return isWaitingForEligible ? WEATHER_WAIT_DISPLAY_MS : WEATHER_DISPLAY_MS
+    }
+    if (currentPhase.type === 'clock') {
+      return isWaitingForEligible ? CLOCK_WAIT_DISPLAY_MS : CLOCK_DISPLAY_MS
+    }
     if (currentPhase.type === 'trailer') return null // Vídeo da vinheta: duração original (via onEnd)
     if (currentPhase.type === 'informativo') {
       return currentPhase.item.file_type === 'image' ? PHOTO_DISPLAY_MS : null
@@ -318,7 +338,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       return photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
     }
     return null
-  }, [currentPhase, isVideoPhase, photosMap, PHOTO_DISPLAY_MS, WEATHER_DISPLAY_MS, CLOCK_DISPLAY_MS])
+  }, [currentPhase, isVideoPhase, photosMap, PHOTO_DISPLAY_MS, WEATHER_DISPLAY_MS, CLOCK_DISPLAY_MS, WEATHER_WAIT_DISPLAY_MS, CLOCK_WAIT_DISPLAY_MS, isWaitingForEligible])
 
   useEffect(function() {
     if (currentPhaseDurationMs === null) return

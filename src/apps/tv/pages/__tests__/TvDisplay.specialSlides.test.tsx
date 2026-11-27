@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
-import { TvDisplay } from '../TvDisplay'
+import { CLOCK_DISPLAY_MS, CLOCK_WAIT_DISPLAY_MS, TvDisplay, WEATHER_DISPLAY_MS, WEATHER_WAIT_DISPLAY_MS } from '../TvDisplay'
 import type { ProgrammingQueueItem, TvInformativo } from '../../types'
 
 /**
@@ -13,7 +13,7 @@ import type { ProgrammingQueueItem, TvInformativo } from '../../types'
  */
 
 const { programming, academicItem } = vi.hoisted(() => {
-  const item = {
+  const item: ProgrammingQueueItem = {
     id: 'content-1',
     type: 'academic',
     course_id: 'course_a',
@@ -31,7 +31,7 @@ const { programming, academicItem } = vi.hoisted(() => {
     academicItem: item,
     programming: {
       queue: [item],
-      currentItem: item,
+      currentItem: item as ProgrammingQueueItem | null,
       academicCompleted: 0,
       contentShown: 0,
       markContentShown: vi.fn(),
@@ -44,6 +44,7 @@ const { programming, academicItem } = vi.hoisted(() => {
       photosMap: {},
       ready: true,
       discoveryError: null,
+      isWaitingForEligible: false,
       markCurrentCompleted: vi.fn(),
       reportMediaFailure: vi.fn(),
       resetInformativoCounter: vi.fn(),
@@ -135,7 +136,7 @@ vi.mock('../../utils/kiosk', () => ({
   isKiosk: () => false,
 }))
 
-const WEATHER_MS = 15000
+const WEATHER_MS = WEATHER_DISPLAY_MS
 
 function renderDisplay() {
   return render(<TvDisplay deviceId="tv-1" />)
@@ -162,6 +163,7 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     programming.photosMap = {}
     programming.ready = true
     programming.discoveryError = null
+    programming.isWaitingForEligible = false
     programming.markCurrentCompleted.mockClear()
     programming.markContentShown.mockClear()
     programming.resetInformativoCounter.mockClear()
@@ -241,7 +243,7 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
     expect(screen.queryByTestId('clock-slide')).toBeNull()
 
-    // WeatherSlideEnhanced dura 15s e então a fase avança para o relógio.
+    // WeatherSlideEnhanced dura 30s na programação normal e então vem o relógio.
     act(() => {
       vi.advanceTimersByTime(WEATHER_MS)
     })
@@ -385,5 +387,78 @@ describe('TvDisplay — cadência dos slides especiais', () => {
 
     endPhase() // vai para o relógio, que não é conteúdo
     expect(programming.markContentShown).toHaveBeenCalledTimes(1)
+  })
+
+  it('usa 20 segundos para o relógio na programação normal', () => {
+    vi.useFakeTimers()
+    programming.contentShown = 3
+
+    renderDisplay()
+    endPhase() // conteúdo fecha o marco → relógio
+
+    act(() => { vi.advanceTimersByTime(CLOCK_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('video-player')).toBeInTheDocument()
+  })
+
+  it('estende a espera para 45s no relógio e 60s no clima, sem contar conteúdo', () => {
+    vi.useFakeTimers()
+    programming.queue = [academicItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    renderDisplay()
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    act(() => { vi.advanceTimersByTime(WEATHER_WAIT_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    expect(programming.markContentShown).not.toHaveBeenCalled()
+  })
+
+  it('retoma no meio do slide prolongado com vinheta antes do vídeo elegível', () => {
+    vi.useFakeTimers()
+    const eligibleItem = { ...academicItem, course_trailer: '/media/vinheta-curso-a.mp4' }
+    programming.queue = [eligibleItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    const { rerender } = renderDisplay()
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    // O contexto libera o vídeo sem reiniciar o app; a transição acontece
+    // imediatamente, sem esperar os 60s do clima.
+    programming.currentItem = eligibleItem
+    programming.isWaitingForEligible = false
+    rerender(<TvDisplay deviceId="tv-1" />)
+
+    expect(screen.queryByTestId('weather-slide')).toBeNull()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', '/media/vinheta-curso-a.mp4')
+  })
+
+  it('não marca o vídeo como assistido ao retomar de uma sequência mais curta', () => {
+    vi.useFakeTimers()
+    programming.queue = [academicItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    const { rerender } = renderDisplay()
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    programming.currentItem = academicItem
+    programming.isWaitingForEligible = false
+    rerender(<TvDisplay deviceId="tv-1" />)
+
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    expect(programming.markCurrentCompleted).not.toHaveBeenCalled()
   })
 })

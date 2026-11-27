@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LIBRARY_REFRESH_MS, VIDEO_COOLDOWN_MS, nextEligiblePosition, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
+import { COOLDOWN_RECHECK_MS, LIBRARY_REFRESH_MS, VIDEO_COOLDOWN_MS, nextEligiblePosition, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
 import { buildLocalQueue, localId, optimizeCourseDistribution, type LocalCourse } from '../../services/localProgramming'
 
 interface SavedState {
@@ -96,6 +96,14 @@ function renderProvider() {
       <Probe />
     </ProgrammingProvider>,
   )
+}
+
+async function flushInitialLoad() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 }
 
 beforeEach(() => {
@@ -266,9 +274,13 @@ describe('cooldown individual de vídeo', () => {
     const history = Object.fromEntries(items.map(item => [item.id, now]))
     expect(nextEligiblePosition(items, 0, history, [], now + VIDEO_COOLDOWN_MS - 1)).toBe(items.length)
     expect(nextEligiblePosition(items, 0, history, [], now + VIDEO_COOLDOWN_MS)).toBe(0)
-    await act(async () => { await vi.advanceTimersByTimeAsync(VIDEO_COOLDOWN_MS) })
-    act(() => api().advance())
+    await act(async () => { await vi.advanceTimersByTimeAsync(VIDEO_COOLDOWN_MS + COOLDOWN_RECHECK_MS) })
+    // Retomada automática: sem advance() manual e sem reinício do aplicativo.
     expect(api().currentItem).not.toBeNull()
+    expect(api().academicCompleted).toBe(2)
+    const resumed = api().currentItem!.id
+    await act(async () => { await vi.advanceTimersByTimeAsync(VIDEO_COOLDOWN_MS) })
+    expect(api().currentItem!.id).toBe(resumed)
     expect(api().academicCompleted).toBe(2)
   })
   it('não bloqueia fotos, vinhetas nem fixos', async () => {
@@ -280,6 +292,66 @@ describe('cooldown individual de vídeo', () => {
     expect(nextEligiblePosition([{...item, file_type: 'image'}], 0, history, [], now)).toBe(0)
     expect(nextEligiblePosition([{...item, is_trailer: true}], 0, history, [], now)).toBe(0)
     expect(nextEligiblePosition([{...item, is_fixed: true}], 0, history, [], now)).toBe(0)
+  })
+})
+
+describe('espera por cooldown: biblioteca viva e retomada automática', () => {
+  it('aplica vídeo novo confirmado durante a espera sem incrementar contadores', async () => {
+    vi.useFakeTimers()
+    renderProvider()
+    await flushInitialLoad()
+    expect(api().ready).toBe(true)
+
+    act(() => api().markCurrentCompleted())
+    act(() => api().markCurrentCompleted())
+    expect(api().currentItem).toBeNull()
+    expect(api().academicCompleted).toBe(2)
+
+    const newVideo = 'G:\\LabHub-TV\\Cursos\\Direito\\C.mp4'
+    rig.files = [...rig.files, rawFile(newVideo, 'C.mp4')]
+    await act(async () => { await vi.advanceTimersByTimeAsync(LIBRARY_REFRESH_MS) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(LIBRARY_REFRESH_MS) })
+
+    expect(api().currentItem?.file_path).toBe(newVideo)
+    expect(api().academicCompleted).toBe(2)
+    expect(api().academicSinceLastFixed).toBe(2)
+    expect(rig.savedState?.academic_since_last_informativo).toBe(2)
+    expect(api().queue.some(i => i.file_path === newVideo)).toBe(true)
+  })
+
+  it('aplica alterações confirmadas sem item atual e conta apenas o conteúdo exibido', async () => {
+    vi.useFakeTimers()
+    renderProvider()
+    await flushInitialLoad()
+    act(() => api().markCurrentCompleted())
+    act(() => api().markCurrentCompleted())
+    expect(api().currentItem).toBeNull()
+
+    const newPhoto = 'G:/LabHub-TV/Cursos/Biomedicina/nova.png'
+    rig.files = [...rig.files, { ...rawFile(newPhoto, 'nova.png'), file_type: 'image' }]
+    await act(async () => { await vi.advanceTimersByTimeAsync(2 * LIBRARY_REFRESH_MS) })
+
+    expect(api().currentItem?.file_path).toBe(newPhoto)
+    // O limite da espera precisa ser inofensivo: nada é contado como assistido.
+    act(() => api().markCurrentCompleted())
+    expect(api().academicCompleted).toBe(3)
+  })
+
+  it('inicia sozinho quando a biblioteca era vazia e um vídeo aparece', async () => {
+    vi.useFakeTimers()
+    rig.files = []
+    renderProvider()
+    await flushInitialLoad()
+
+    expect(api().ready).toBe(true)
+    expect(api().queue).toHaveLength(0)
+    expect(api().currentItem).toBeNull()
+
+    rig.files = [rawFile(A, 'A.mp4')]
+    await act(async () => { await vi.advanceTimersByTimeAsync(2 * LIBRARY_REFRESH_MS) })
+
+    expect(api().currentItem?.file_path).toBe(A)
+    expect(api().academicCompleted).toBe(0)
   })
 })
 

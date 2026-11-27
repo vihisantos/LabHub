@@ -5,5 +5,5 @@
   "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3lsQ7O+gU7Y/aLXnTjQZ\nG68PhXV6bQII9ynrva8XlK+Oa0OsyScybGNvF1nWeApxKn5YamldBX78d2KgMxMS\n0XSu3U4SO+RITES2UB8TQMUyiqD0mlU/pw8UKqdYwabdRlov1KIEiEIV1bv1idBF\nhlSAN3WzDOPMf86HlEw/H/2SpqmwYm5OIG89ec126BtPCnDzzFA+XCsq8ZCxahpy\nXAF8LYslUFg1SC8UzXpy6sMWH38nkP/oJp58PnBBGlN8mv2Doh54sSDvTWiEonoH\n8cC/5mPSdBJEe0DrtVTnOlp5lL83Eg+nyjmn8O4mJTMNU7zo7YhjYK9rMTBhdgjt\nowIDAQAB\n-----END PUBLIC KEY-----\n",
   "expectedPublicKeyHash": "3209cf6be2eb6d8da260ffa40a1cc73991bc98b2896b9ead5ae4f464e71aa23e",
   "createdAt": "2026-11-16T01:23:08.250Z",
-  "embedder": "LabHub TV Desktop v2.4.0"
+  "embedder": "LabHub TV Desktop v2.5.0"
 }

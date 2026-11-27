@@ -43,6 +43,15 @@ próximo clima sem reiniciar o aplicativo. A pasta `Clima/` é explicitamente
 excluída da fila acadêmica e da assinatura da biblioteca — trocar um vídeo do
 clima não reinicia a programação dos cursos.
 
+## Duração na programação
+
+- Relógio: **20 s** na programação normal e **45 s** quando todos os vídeos
+  acadêmicos estão em cooldown.
+- Clima: **30 s** na programação normal e **60 s** na espera por cooldown.
+- Fotos das galerias: **15 s** em qualquer caso.
+- Se um vídeo voltar a ficar elegível, a espera termina no limite do slide
+  atual e a vinheta do curso volta a abrir o conteúdo acadêmico.
+
 ## Mapeamento Open-Meteo
 
 | `weather_code` | Condição | Vídeo (dia / noite) |
