@@ -82,13 +82,21 @@ jobs:
         run: npx vitest run --dir src/tv-desktop
 
       - name: Rust check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Rust check (signed updater feature)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --features signed-updater
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml --features signed-updater
+
+      # Chave descartável (par de teste do tauri-plugin-updater): exercita o
+      # registro em tempo de compilação e a verificação de assinatura sem
+      # publicar nem inventar credenciais de produção.
+      - name: Signed updater smoke (dummy key)
+        env:
+          LABHUB_TV_UPDATER_PUBLIC_KEY: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0OUVGNDc0NkZBNkU2RDcKUldUWDVxWnZkUFNlcERHV2cyYno4bjZBclFuQk13Z1FLMWdlVm9zb3JjYkx6Y3VuRCtLSitjWWU=
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features signed-updater signature_smoke_tests
 
       - name: Rust tests (physical USB test excluded)
-        run: cargo test --manifest-path src-tauri/Cargo.toml -- --skip test_usb_key_verification_real
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --skip test_usb_key_verification_real
 
       - name: Build NSIS installer (no publish)
         run: npx tauri build --bundles nsis

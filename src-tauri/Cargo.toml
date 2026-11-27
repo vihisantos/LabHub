@@ -39,6 +39,10 @@ sha2 = "0.11"
 hex = "0.4"
 rand = "0.8"
 
+[dev-dependencies]
+# `tauri::test::mock_app` é usado apenas no smoke de assinatura do updater.
+tauri = { version = "2", features = ["test"] }
+
 [profile.release]
 strip = true
 opt-level = "s"

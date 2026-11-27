@@ -18,7 +18,7 @@ O pacote verifica a assinatura nativa do Tauri. Não altere a chave a cada relea
 
 ## Homologação obrigatória
 
-- Regenerar Cargo.lock para a dependência opcional e executar CI com signed-updater.
+- Cargo.lock já inclui a dependência opcional do updater; o CI usa `--locked` e compila/executa o smoke de assinatura com uma chave descartável (pacote íntegro aceito, bytes alterados rejeitados). Ainda é obrigatório testar com as chaves reais do proprietário.
 - Testar instalação física Windows, sem elevação, preservação de pasta, programação, ativação e autostart; validar reinício após instalação.
 - Testar release inexistente, rede indisponível, assinatura inválida, versão antiga e atualização no limite da sequência.
 - Testar duas versões assinadas de verdade antes de publicar latest.
