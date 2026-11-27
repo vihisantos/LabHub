@@ -12,7 +12,7 @@
   <a href="https://lab-hub-pi.vercel.app">
     <img src="https://img.shields.io/badge/Acessar-Aplica%C3%A7%C3%A3o-10b981?style=for-the-badge&logo=vercel&logoColor=white" alt="Acessar aplicação" />
   </a>
-  <a href="https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe">
+  <a href="https://github.com/vihisantos/LabHub/releases/download/tv-v2.5.0-rc.1/LabHub-TV-2.5.0-x64-setup.exe">
     <img src="https://img.shields.io/badge/TV%20Desktop-Baixar%20para%20Windows-2F6BFF?style=for-the-badge&logo=windows&logoColor=white" alt="Baixar LabHub TV Desktop para Windows" />
   </a>
   <img src="https://img.shields.io/github/actions/workflow/status/vihisantos/LabHub/ci.yml?branch=main&style=for-the-badge&label=CI&logo=githubactions&logoColor=white" alt="CI" />
@@ -185,15 +185,15 @@ O **LabHub TV** agora é um aplicativo Windows separado do PWA: a antiga rota `/
 - **Ativação por pendrive USB autorizado** — validação local, armazenamento protegido no Windows e reativação quando necessária.
 - **Instalador Windows** — pacote NSIS personalizado com a identidade **LabHub TV · by Vihisantos** e autostart configurável.
 
-**[⬇️ Baixar LabHub TV Desktop 2.4.0 para Windows (.exe)](https://github.com/vihisantos/LabHub/releases/download/tv-v2.4.0-rc.1/LabHub.TV_2.4.0_x64-setup.exe)**
+**[⬇️ Baixar LabHub TV Desktop 2.5.0 para Windows (.exe)](https://github.com/vihisantos/LabHub/releases/download/tv-v2.5.0-rc.1/LabHub-TV-2.5.0-x64-setup.exe)**
 
-- **Arquivo:** `LabHub.TV_2.4.0_x64-setup.exe` (25,01 MB).
-- **Release:** [`tv-v2.4.0-rc.1` — pré-lançamento](https://github.com/vihisantos/LabHub/releases/tag/tv-v2.4.0-rc.1).
-- **SHA-256:** `0be3a83d59580be47cb2a39ba88299f0f96ceefddb13dec25d85a25b6607bfc7`.
+- **Arquivo:** `LabHub-TV-2.5.0-x64-setup.exe` (26,5 MB).
+- **Release:** [`tv-v2.5.0-rc.1` — pré-lançamento](https://github.com/vihisantos/LabHub/releases/tag/tv-v2.5.0-rc.1).
+- **SHA-256:** `e1e5e34641074f6a1c536f8c97696be9bf9b893a8801ca25f700ffd031f9456c`.
 
 O link baixa o instalador diretamente do GitHub Releases, sem precisar executar um workflow. Para reconstruir o `.exe` a partir do código-fonte, utilize o [workflow manual de build](https://github.com/vihisantos/LabHub/actions/workflows/desktop-release.yml).
 
-> **Atenção:** esta é uma versão de pré-lançamento, ainda pendente de homologação física prolongada. Para ativar o LabHub TV, é necessário um pendrive USB autorizado. Os instaladores Electron antigos não correspondem a esta versão.
+> **Atenção:** esta é uma versão de pré-lançamento, ainda pendente de homologação física prolongada e do fluxo de atualização automática. O primeiro instalador com updater deve ser instalado manualmente; esta pré-release não dispara atualizações automáticas. Para ativar o LabHub TV, é necessário um pendrive USB autorizado. Os instaladores Electron antigos não correspondem a esta versão.
 
 ### Patrimônio
 
