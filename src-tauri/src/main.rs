@@ -64,6 +64,8 @@ pub struct RichDriveFile {
     pub file_type: String,
     /// Se o arquivo está disponível para reprodução
     pub is_available: bool,
+    /// Última alteração, para detectar substituições com o mesmo tamanho.
+    pub modified_at: Option<u64>,
 }
 
 impl RichDriveFile {
@@ -323,11 +325,12 @@ fn get_file_type(filename: &str) -> Option<&'static str> {
 fn discover_files_from_drive(sync_folder: &Path) -> Result<Vec<RichDriveFile>, String> {
     let mut files = Vec::new();
 
-    if !sync_folder.exists() {
-        return Ok(files);
+    if !sync_folder.is_dir() {
+        return Err(format!("Pasta do Drive indisponível: {}", sync_folder.display()));
     }
 
-    for entry in walkdir::WalkDir::new(sync_folder).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(sync_folder) {
+        let entry = entry.map_err(|e| format!("Falha ao ler a biblioteca do Drive: {}", e))?;
         if !entry.file_type().is_file() {
             continue;
         }
@@ -335,7 +338,8 @@ fn discover_files_from_drive(sync_folder: &Path) -> Result<Vec<RichDriveFile>, S
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if let Some(file_type) = get_file_type(name) {
-                if let Ok(metadata) = fs::metadata(path) {
+                {
+                    let metadata = fs::metadata(path).map_err(|e| format!("Falha ao ler mídia: {}", e))?;
                     let size = metadata.len();
                     let path_str = path.to_string_lossy().to_string();
 
@@ -358,6 +362,7 @@ fn discover_files_from_drive(sync_folder: &Path) -> Result<Vec<RichDriveFile>, S
                         parent_folder,
                         file_type: file_type.to_string(),
                         is_available: true,
+                        modified_at: metadata.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).and_then(|d| u64::try_from(d.as_millis()).ok()),
                     });
                 }
             }

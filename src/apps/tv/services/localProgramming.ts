@@ -32,6 +32,7 @@ export interface LocalMediaFile {
   relativePath: string | null
   fileType: 'video' | 'image'
   size: number
+  modifiedAt?: number | null
 }
 
 export interface LocalCourse {
@@ -76,6 +77,7 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
       parentFolder: string | null
       file_type: string
       isAvailable: boolean
+      modifiedAt?: number | null
     }>>('list_synced_files')
 
     if (!Array.isArray(raw)) {
@@ -93,6 +95,7 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
         relativePath: f.relativePath,
         fileType: f.file_type as 'video' | 'image',
         size: f.size,
+        modifiedAt: f.modifiedAt ?? null,
       }))
     return { files, error: null }
   } catch (e) {
@@ -100,6 +103,15 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
     console.warn('[localProgramming] list_synced_files falhou:', message)
     return { files: [], error: message || 'Falha ao ler a pasta sincronizada' }
   }
+}
+
+/** Assinatura determinística; a ordem do WalkDir não representa uma alteração. */
+export function mediaFingerprint(file: LocalMediaFile): string {
+  return JSON.stringify([file.path, file.relativePath, file.fileType, file.size, file.modifiedAt ?? null])
+}
+
+export function libraryFingerprint(files: LocalMediaFile[]): string {
+  return JSON.stringify(files.map(mediaFingerprint).sort())
 }
 
 /** Compatibilidade com consumidores que só precisam dos arquivos. */
@@ -279,7 +291,9 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
       console.warn('[discoverLocalStructure] relativePath ausente para o arquivo:', file.name)
     }
 
-    const segs = segments(pathForSegment)
+    const allSegments = segments(pathForSegment)
+    const rootIdx = !file.relativePath ? allSegments.lastIndexOf('LabHub-TV') : -1
+    const segs = rootIdx >= 0 ? allSegments.slice(rootIdx + 1) : allSegments
 
     if (segs.length < 2) {
       continue // arquivo solto na raiz: sem categoria
@@ -305,6 +319,7 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
 
     // Verificar se é galeria (em Galerias/<nome>/...)
     if (galeriasIdx !== -1 && galeriasIdx < segs.length - 2) {
+      if (file.fileType !== 'image') continue
       const galleryName = segs[galeriasIdx + 1]
       const key = slugify(galleryName)
       let entry = galleryMap.get(key)
@@ -356,7 +371,7 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
         course = { id: 'course_' + key, name: courseName, slug: key, trailer: null, contents: [] }
         courseMap.set(key, course)
       }
-      if (isTrailerName(file.name)) {
+      if (file.fileType === 'video' && isTrailerName(file.name)) {
         course.trailer = file.path
       } else {
         course.contents.push(file)

@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProgrammingProvider, useProgramming } from '../ProgrammingContext'
+import { LIBRARY_REFRESH_MS, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
 import { buildLocalQueue, localId, optimizeCourseDistribution, type LocalCourse } from '../../services/localProgramming'
 
 interface SavedState {
@@ -204,5 +204,29 @@ describe('ProgrammingContext — recuperação Fase 5', () => {
     for (let i = 1; i < distributed.length; i++) {
       expect(distributed[i].course_id).not.toBe(distributed[i - 1].course_id)
     }
+  })
+})
+
+
+describe('descoberta periódica da biblioteca', () => {
+  it('confirma duas leituras e incorpora a foto apenas após advance', async () => {
+    vi.useFakeTimers()
+    renderProvider()
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+    expect(api().ready).toBe(true)
+    const current = api().currentItem!
+    const removed = api().queue.find(i => i.id !== current.id)!
+    const photo = 'G:/LabHub-TV/Cursos/Direito/novo.jpg'
+    rig.files = [...rig.files.filter(f => f.path !== removed.file_path), {
+      ...rawFile(photo, 'novo.jpg'), file_type: 'image',
+    }]
+    await act(async () => { await vi.advanceTimersByTimeAsync(LIBRARY_REFRESH_MS) })
+    expect(api().queue.some(i => i.file_path === photo)).toBe(false)
+    await act(async () => { await vi.advanceTimersByTimeAsync(LIBRARY_REFRESH_MS) })
+    expect(api().currentItem?.id).toBe(current.id)
+    act(() => api().markCurrentCompleted())
+    expect(api().academicCompleted).toBe(1)
+    expect(api().currentItem?.file_path).toBe(photo)
+    expect(api().queue.some(i => i.id === removed.id)).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { discoverLocalStructure, type LocalMediaFile } from '../localProgramming'
+import { buildLocalQueue, discoverLocalStructure, libraryFingerprint, type LocalMediaFile } from '../localProgramming'
 
 /**
  * Testes para a descoberta de estrutura local do Google Drive.
@@ -180,5 +180,36 @@ describe('localProgramming.discoverLocalStructure', () => {
       expect(result.courses).toHaveLength(1)
       expect(result.courses[0].name).toBe('Odontologia')
     })
+  })
+})
+
+describe('imagens na biblioteca local', () => {
+  const image = (relativePath: string): LocalMediaFile => ({
+    name: relativePath.split('/').pop()!, path: 'G:/LabHub-TV/' + relativePath,
+    relativePath, fileType: 'image', size: 2048,
+  })
+  it('inclui imagens acadêmicas, fixas, informativas e de galeria; ignora a raiz', () => {
+    const files = ['Cursos/Direito/foto.jpg', 'Fixos/banner.png', 'Informativos/aviso.webp', 'Galerias/Evento/foto.jpeg', 'raiz.png'].map(image)
+    const result = discoverLocalStructure(files)
+    const queue = buildLocalQueue(result.courses, [])
+    expect(queue.map(item => item.file_name)).toEqual(['foto.jpg'])
+    expect(queue[0]).toMatchObject({ file_type: 'image', duration_seconds: 15 })
+    expect(result.fixed[0]).toMatchObject({ file_type: 'image', duration_seconds: 15 })
+    expect(result.informativos[0]).toMatchObject({ file_type: 'image', duration_seconds: 15 })
+    expect(result.photosMap[result.galleries[0].id]).toHaveLength(1)
+  })
+  it('não interpreta imagem chamada VINHETA como vídeo', () => {
+    const result = discoverLocalStructure([image('Cursos/Direito/VINHETA.png')])
+    expect(result.courses[0].trailer).toBeNull()
+    expect(buildLocalQueue(result.courses, [])).toHaveLength(1)
+  })
+  it('ignora imagem na raiz inclusive no fallback absoluto', () => {
+    expect(discoverLocalStructure([{ ...image('raiz.png'), relativePath: null }]).totalContents).toBe(0)
+  })
+  it('detecta alteração de mesmo tamanho e não depende da ordem do scan', () => {
+    const a = image('Cursos/Direito/a.jpg')
+    const b = image('Cursos/Direito/b.jpg')
+    expect(libraryFingerprint([a,b])).toBe(libraryFingerprint([b,a]))
+    expect(libraryFingerprint([{...a, modifiedAt: 1}])).not.toBe(libraryFingerprint([{...a, modifiedAt: 2}]))
   })
 })

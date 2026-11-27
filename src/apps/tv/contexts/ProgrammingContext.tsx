@@ -22,6 +22,9 @@ import {
   shuffleArray,
   optimizeCourseDistribution,
   localId,
+  mediaFingerprint,
+  libraryFingerprint,
+  type LocalMediaFile,
   type LocalDiscovery,
 } from '../services/localProgramming'
 import type { ProgrammingQueueItem, TvGallery, TvGalleryPhoto, TvInformativo } from '../types'
@@ -103,6 +106,8 @@ interface ProgrammingContextValue {
   discoveryError: string | null
 }
 
+export const LIBRARY_REFRESH_MS = 60_000
+
 const ProgrammingCtx = createContext<ProgrammingContextValue | null>(null)
 
 // eslint-disable-next-line react/only-export-components
@@ -154,6 +159,10 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
   /** Guarda a descoberta atual para reconstruir a fila pelo pending_queue. */
   const discoveryRef = useRef<LocalDiscovery | null>(null)
+  const appliedFilesRef = useRef<LocalMediaFile[]>([])
+  const pendingFilesRef = useRef<LocalMediaFile[] | null>(null)
+  const candidateFingerprintRef = useRef<string | null>(null)
+  const [initialRetry, setInitialRetry] = useState(0)
 
   /* Persistência local (comandos Tauri; falham silenciosamente fora do app). */
   const persistState = useCallback(function(state: TauriProgrammingState) {
@@ -253,6 +262,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         setReadError(null)
         const discovery = discoverLocalStructure(files)
         discoveryRef.current = discovery
+        appliedFilesRef.current = files
+        pendingFilesRef.current = null
+        candidateFingerprintRef.current = null
 
         setFixedContent(discovery.fixed.map(function(f): ProgrammingQueueItem {
           return {
@@ -270,7 +282,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         setGalleries(discovery.galleries)
         setPhotosMap(discovery.photosMap)
 
-        if (discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.galleries.length === 0) {
+        if (discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0) {
           setDiscoveryError(
             'Nenhum conteúdo encontrado na pasta sincronizada do Drive. ' +
             'Verifique a pasta em Ctrl+Alt+K → Manutenção.',
@@ -345,7 +357,44 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
     void loadInitialData()
     return function() { cancelled = true }
-  }, [loadPersistedState, persistState, pickNextFixedId, rebuildQueueFromIds])
+  }, [loadPersistedState, persistState, pickNextFixedId, rebuildQueueFromIds, initialRetry])
+
+  // Só descobre em segundo plano. A troca de fila acontece em advance(),
+  // chamado pela TV ao terminar a sequência de fases em andamento.
+  useEffect(function() {
+    if (!ready) return
+    let cancelled = false
+    let busy = false
+    const poll = async function() {
+      if (busy) return
+      if (!discoveryRef.current) { setInitialRetry(n => n + 1); return }
+      busy = true
+      try {
+        const result = await listLocalMediaWithStatus()
+        if (cancelled) return
+        if (result.error) {
+          candidateFingerprintRef.current = null
+          pendingFilesRef.current = null
+          return // erro transitório: não altera fila, contadores ou estado salvo
+        }
+        const signature = libraryFingerprint(result.files)
+        if (signature === libraryFingerprint(appliedFilesRef.current)) {
+          pendingFilesRef.current = null
+          candidateFingerprintRef.current = null
+          return
+        }
+        // Duas leituras iguais reduzem risco de inserir um download incompleto.
+        if (signature === candidateFingerprintRef.current) {
+          pendingFilesRef.current = result.files
+        } else {
+          candidateFingerprintRef.current = signature
+          pendingFilesRef.current = null
+        }
+      } finally { busy = false }
+    }
+    const timer = window.setInterval(() => { void poll() }, LIBRARY_REFRESH_MS)
+    return function() { cancelled = true; window.clearInterval(timer) }
+  }, [ready])
 
   /* ── Ações ────────────────────────────────────────────────────────────── */
 
@@ -359,6 +408,51 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   }, [])
 
   const advance = useCallback(function() {
+    const pending = pendingFilesRef.current
+    if (pending) {
+      pendingFilesRef.current = null
+      candidateFingerprintRef.current = null
+      const previous = new Map(appliedFilesRef.current.map(f => [f.path, mediaFingerprint(f)]))
+      const changed = new Set(pending.filter(f => previous.get(f.path) !== mediaFingerprint(f)).map(f => localId(f.path)))
+      const survivingIds = new Set(pending.map(f => localId(f.path)))
+      const failures = failedIds.filter(id => survivingIds.has(id) && !changed.has(id))
+      const discovery = discoverLocalStructure(pending)
+      discoveryRef.current = discovery
+      appliedFilesRef.current = pending
+      setFailedIds(failures)
+      const nextFixed = discovery.fixed.map((f): ProgrammingQueueItem => ({
+        id: f.id, type: 'fixed', file_path: f.file_path, file_name: f.file_name,
+        file_type: f.file_type, duration_seconds: f.duration_seconds, is_trailer: false, is_fixed: true,
+      }))
+      setFixedContent(nextFixed)
+      setCompletedFixedIds(ids => ids.filter(id => nextFixed.some(f => f.id === id) && !changed.has(id)))
+      setInformativos(discovery.informativos)
+      setGalleries(discovery.galleries)
+      setPhotosMap(discovery.photosMap)
+      setDiscoveryError(discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0
+        ? 'Nenhum conteúdo encontrado na pasta sincronizada do Drive.' : null)
+      setLibraryVersion(new Date().toISOString())
+      const available = buildLocalQueue(discovery.courses, failures)
+      const byId = new Map(available.map(item => [item.id, item]))
+      const oldIds = new Set(queue.map(item => item.id))
+      const before = queue.slice(0, position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
+      const after = queue.slice(position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
+      const additions = available.filter(item => !oldIds.has(item.id))
+      if (after.length + additions.length > 0) {
+        setQueue([...before, ...after, ...additions])
+        setPosition(before.length)
+        setCompletedIds(ids => ids.filter(id => byId.has(id)))
+      } else {
+        const last = queue[position]?.id
+        if (available.length > 1 && available[0].id === last) {
+          available.push(available.shift()!)
+        }
+        setQueue(available)
+        setPosition(0)
+        setCompletedIds([])
+      }
+      return
+    }
     if (queue.length === 0) {
       setPosition(0)
       return
@@ -400,6 +494,13 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       setQueue(newOrder)
     }
   }, [queue, position, failedIds])
+
+  // Repara a seleção de fixos se uma atualização remover o próximo comercial.
+  useEffect(function() {
+    if (nextFixedId && fixedContent.some(f => f.id === nextFixedId)) return
+    const next = pickNextFixedId(fixedContent, completedFixedIds)
+    if (next !== nextFixedId) setNextFixedId(next)
+  }, [fixedContent, nextFixedId, completedFixedIds, pickNextFixedId])
 
   const markCurrentCompleted = useCallback(function() {
     const current = queue[position]
