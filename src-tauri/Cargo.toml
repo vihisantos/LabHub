@@ -1,6 +1,6 @@
 [package]
 name = "labhub-tv"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 description = "LabHub TV - Aplicação de reprodução de conteúdo acadêmico e institucional"
 license = "UNLICENSED"
@@ -11,11 +11,13 @@ tauri-build = { version = "2", features = [] }
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
+signed-updater = ["dep:tauri-plugin-updater"]
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "default", "custom-protocol", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-updater = { version = "2", optional = true }
 walkdir = "2"
 dirs = "7"
 windows = { version = "0.62", features = [
@@ -36,6 +38,10 @@ base64 = "0.22"
 sha2 = "0.11"
 hex = "0.4"
 rand = "0.8"
+
+[dev-dependencies]
+# `tauri::test::mock_app` é usado apenas no smoke de assinatura do updater.
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 strip = true

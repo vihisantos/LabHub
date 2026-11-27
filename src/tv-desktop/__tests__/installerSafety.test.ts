@@ -17,6 +17,17 @@ function nsisFunction(source: string, name: string): string {
 }
 
 describe('Fase 5.2 — instalador premium e comportamento', () => {
+  it('permite carregar mídia local do Drive pelo protocolo asset', () => {
+    const parsed = JSON.parse(config) as {
+      app?: { security?: { assetProtocol?: { enable?: boolean; scope?: unknown } } }
+    }
+    const protocol = parsed.app?.security?.assetProtocol
+    expect(protocol?.enable).toBe(true)
+    expect(protocol?.scope).toContain('**/*')
+    const scope = protocol?.scope as string[]
+    expect(scope.some((pattern) => pattern.includes('\\'))).toBe(false)
+  })
+
   it('preserva a identidade visual premium e os assets DPI', () => {
     const parsed = JSON.parse(config) as {
       bundle?: { windows?: { nsis?: Record<string, unknown> } }

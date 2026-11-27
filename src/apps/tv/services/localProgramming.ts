@@ -32,6 +32,7 @@ export interface LocalMediaFile {
   relativePath: string | null
   fileType: 'video' | 'image'
   size: number
+  modifiedAt?: number | null
 }
 
 export interface LocalCourse {
@@ -76,6 +77,7 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
       parentFolder: string | null
       file_type: string
       isAvailable: boolean
+      modifiedAt?: number | null
     }>>('list_synced_files')
 
     if (!Array.isArray(raw)) {
@@ -93,6 +95,7 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
         relativePath: f.relativePath,
         fileType: f.file_type as 'video' | 'image',
         size: f.size,
+        modifiedAt: f.modifiedAt ?? null,
       }))
     return { files, error: null }
   } catch (e) {
@@ -100,6 +103,21 @@ export async function listLocalMediaWithStatus(): Promise<LocalMediaResult> {
     console.warn('[localProgramming] list_synced_files falhou:', message)
     return { files: [], error: message || 'Falha ao ler a pasta sincronizada' }
   }
+}
+
+/** Assinatura determinística; a ordem do WalkDir não representa uma alteração. */
+export function mediaFingerprint(file: LocalMediaFile): string {
+  return JSON.stringify([file.path, file.relativePath, file.fileType, file.size, file.modifiedAt ?? null])
+}
+
+/** A pasta Clima/ pertence só ao slide meteorológico: não muda a fila acadêmica. */
+export function isAcademicLibraryFile(file: LocalMediaFile): boolean {
+  const location = (file.relativePath || file.path).replace(/\\/g, '/').toLowerCase()
+  return !location.split('/').some((part) => part === 'clima')
+}
+
+export function libraryFingerprint(files: LocalMediaFile[]): string {
+  return JSON.stringify(files.filter(isAcademicLibraryFile).map(mediaFingerprint).sort())
 }
 
 /** Compatibilidade com consumidores que só precisam dos arquivos. */
@@ -169,6 +187,7 @@ export function toLocalUrl(filePath: string): string {
 const FIXED_ROOT = 'fixos'
 const INFORMATIVOS_ROOT = 'informativos'
 const GALLERIES_ROOT = 'galerias'
+const CLIMATE_ROOT = 'clima'
 
 /** Primeiro segmento do caminho relativo (nome da pasta raiz). */
 /** @deprecated - kept for reference, not used in current implementation */
@@ -200,29 +219,22 @@ function segments(path: string | null): string[] {
   // Normalizar: remover 'Meu Drive' se seguido de 'LabHub-TV' ou variantes
   // O objetivo é ter apenas o nome da pasta raiz (ex: 'LabHub-TV')
   const normalized: string[] = []
-  let skipUntilNext = false
 
   for (let i = 0; i < result.length; i++) {
     const curr = result[i]
 
-    if (skipUntilNext) {
-      // Se próximo for LabHub-TV ou similar, pular até lá
-      if (curr.toLowerCase().includes('labhub')) {
-        normalized.push('LabHub-TV')
-        skipUntilNext = false
-      }
+    // 'Meu Drive' é só o prefixo do Google Drive; pula os DOIS segmentos e
+    // continua. Não pode "pular até encontrar labhub": instalações cuja pasta
+    // não tem LabHub no nome perderiam Fixos/ e Informativos/ inteiros.
+    if (curr.toLowerCase() === 'meu' && result[i + 1]?.toLowerCase() === 'drive') {
+      i += 1
       continue
     }
 
-    // Detectar 'Meu Drive' seguido de LabHub-TV
-    if (curr.toLowerCase() === 'meu' && i < result.length - 2 && result[i + 1]?.toLowerCase() === 'drive') {
-      // Pular 'Meu', 'Drive' e processar 'LabHub-TV' depois
-      skipUntilNext = true
-      continue
-    }
-
-    // Normalizar 'LabHub -TV' ou 'LabHub-TV' como um único segmento
-    if (curr.toLowerCase().includes('labhub')) {
+    // Normalizar a pasta raiz ('LabHub -TV' / 'LabHub-TV'). O último segmento
+    // é o arquivo: um vídeo chamado labhub.mp4 não pode virar raiz falsa e
+    // fazer o slicing descartar a categoria.
+    if (i < result.length - 1 && curr.toLowerCase().includes('labhub')) {
       normalized.push('LabHub-TV')
       continue
     }
@@ -279,32 +291,43 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
       console.warn('[discoverLocalStructure] relativePath ausente para o arquivo:', file.name)
     }
 
-    const segs = segments(pathForSegment)
+    const allSegments = segments(pathForSegment)
+    const rootIdx = !file.relativePath ? allSegments.indexOf('LabHub-TV') : -1
+    const segs = rootIdx >= 0 ? allSegments.slice(rootIdx + 1) : allSegments
 
     if (segs.length < 2) {
       continue // arquivo solto na raiz: sem categoria
     }
 
-    // Encontrar índice de cada categoria no caminho
+    // Clima/ é exclusivo do slide meteorológico; nunca vira curso nem entra
+    // na fila acadêmica (mesmo em instalações sem a pasta Cursos/).
+    if (segs.some((seg) => normalizeRoot(seg) === CLIMATE_ROOT)) continue
+
+    // Encontrar índice de cada categoria no caminho. A PRIMEIRA categoria do
+    // caminho decide: um arquivo em Cursos/<curso>/Fixos/ é acadêmico, não
+    // deve ser reclassificado como fixo por causa da subpasta.
     const cursosIdx = findCategoryIndex(segs, 'cursos')
     const fixosIdx = findCategoryIndex(segs, 'fixos')
     const informativosIdx = findCategoryIndex(segs, 'informativos')
     const galeriasIdx = findCategoryIndex(segs, 'galerias')
+    const found = [cursosIdx, fixosIdx, informativosIdx, galeriasIdx].filter(function(i) { return i >= 0 })
+    const firstCategory = found.length > 0 ? Math.min(...found) : -1
 
-    // Verificar se é conteúdo fixo (em Fixos/)
-    if (fixosIdx !== -1 && fixosIdx < segs.length - 1) {
+    // Verificar se é conteúdo fixo (em Fixos/, inclusive subpastas)
+    if (fixosIdx !== -1 && firstCategory === fixosIdx && fixosIdx < segs.length - 1) {
       fixedFiles.push(file)
       continue
     }
 
-    // Verificar se é conteúdo informativo (em Informativos/)
-    if (informativosIdx !== -1 && informativosIdx < segs.length - 1) {
+    // Verificar se é conteúdo informativo (em Informativos/, inclusive subpastas)
+    if (informativosIdx !== -1 && firstCategory === informativosIdx && informativosIdx < segs.length - 1) {
       informativoFiles.push(file)
       continue
     }
 
     // Verificar se é galeria (em Galerias/<nome>/...)
-    if (galeriasIdx !== -1 && galeriasIdx < segs.length - 2) {
+    if (galeriasIdx !== -1 && firstCategory === galeriasIdx && galeriasIdx < segs.length - 2) {
+      if (file.fileType !== 'image') continue
       const galleryName = segs[galeriasIdx + 1]
       const key = slugify(galleryName)
       let entry = galleryMap.get(key)
@@ -356,7 +379,7 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
         course = { id: 'course_' + key, name: courseName, slug: key, trailer: null, contents: [] }
         courseMap.set(key, course)
       }
-      if (isTrailerName(file.name)) {
+      if (file.fileType === 'video' && isTrailerName(file.name)) {
         course.trailer = file.path
       } else {
         course.contents.push(file)

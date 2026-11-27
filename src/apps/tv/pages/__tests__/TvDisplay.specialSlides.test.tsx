@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
-import { TvDisplay } from '../TvDisplay'
+import { CLOCK_DISPLAY_MS, CLOCK_WAIT_DISPLAY_MS, TvDisplay, WEATHER_DISPLAY_MS, WEATHER_WAIT_DISPLAY_MS } from '../TvDisplay'
 import type { ProgrammingQueueItem, TvInformativo } from '../../types'
 
 /**
@@ -13,7 +13,7 @@ import type { ProgrammingQueueItem, TvInformativo } from '../../types'
  */
 
 const { programming, academicItem } = vi.hoisted(() => {
-  const item = {
+  const item: ProgrammingQueueItem = {
     id: 'content-1',
     type: 'academic',
     course_id: 'course_a',
@@ -31,7 +31,7 @@ const { programming, academicItem } = vi.hoisted(() => {
     academicItem: item,
     programming: {
       queue: [item],
-      currentItem: item,
+      currentItem: item as ProgrammingQueueItem | null,
       academicCompleted: 0,
       contentShown: 0,
       markContentShown: vi.fn(),
@@ -44,8 +44,11 @@ const { programming, academicItem } = vi.hoisted(() => {
       photosMap: {},
       ready: true,
       discoveryError: null,
+      isWaitingForEligible: false,
       markCurrentCompleted: vi.fn(),
-      resetInformativoCounter: vi.fn(),
+      markSpecialContentCompleted: vi.fn(),
+      reportMediaFailure: vi.fn(),
+      failedIds: [] as string[],
     },
   }
 })
@@ -93,8 +96,13 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 // O player expõe um botão que encerra a fase, simulando o fim do vídeo.
 vi.mock('../../components/VideoPlayer', () => ({
-  VideoPlayer: ({ onEnd }: { onEnd?: () => void }) => (
-    <button data-testid="video-player" onClick={() => onEnd?.()}>
+  VideoPlayer: ({ onEnd, url, contentType }: { onEnd?: () => void; url: string; contentType?: string }) => (
+    <button
+      data-testid="video-player"
+      data-url={url}
+      data-content-type={contentType}
+      onClick={() => onEnd?.()}
+    >
       VideoPlayer
     </button>
   ),
@@ -128,7 +136,7 @@ vi.mock('../../utils/kiosk', () => ({
   isKiosk: () => false,
 }))
 
-const WEATHER_MS = 15000
+const WEATHER_MS = WEATHER_DISPLAY_MS
 
 function renderDisplay() {
   return render(<TvDisplay deviceId="tv-1" />)
@@ -155,9 +163,10 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     programming.photosMap = {}
     programming.ready = true
     programming.discoveryError = null
+    programming.isWaitingForEligible = false
     programming.markCurrentCompleted.mockClear()
     programming.markContentShown.mockClear()
-    programming.resetInformativoCounter.mockClear()
+    programming.markSpecialContentCompleted.mockClear()
     document.documentElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
   })
 
@@ -234,7 +243,7 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
     expect(screen.queryByTestId('clock-slide')).toBeNull()
 
-    // WeatherSlideEnhanced dura 15s e então a fase avança para o relógio.
+    // WeatherSlideEnhanced dura 30s na programação normal e então vem o relógio.
     act(() => {
       vi.advanceTimersByTime(WEATHER_MS)
     })
@@ -298,6 +307,82 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.queryByTestId('video-player')).toBeNull()
   })
 
+  it('fixo em vídeo registra a própria conclusão e nunca a de informativo', () => {
+    programming.fixedContent = [FIXED]
+    programming.nextFixedId = FIXED.id
+    programming.isFixedDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', FIXED.file_path)
+    endPhase()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('fixed', FIXED.id)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalledWith('informativo', expect.anything())
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    endPhase()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('informativo em vídeo registra a conclusão no fim efetivo do vídeo', () => {
+    const videoInfo = {...INFORMATIVO, file_type: 'video', file_path: '/media/informativos/aviso.mp4'}
+    programming.nextInformativo = videoInfo as unknown as Record<string, unknown>
+    programming.informativoDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', videoInfo.file_path)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalled()
+    endPhase()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('informativo', videoInfo.id)
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    endPhase()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('informativo em imagem aguarda 15 segundos e registra a conclusão no timer', () => {
+    vi.useFakeTimers()
+    programming.nextInformativo = INFORMATIVO as unknown as Record<string, unknown>
+    programming.informativoDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
+    act(() => { vi.advanceTimersByTime(14999) })
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', INFORMATIVO.file_path)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('informativo', INFORMATIVO.id)
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    endPhase()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('imagem acadêmica usa o player de imagem e termina após 15 segundos', () => {
+    vi.useFakeTimers()
+    programming.currentItem = {
+      ...academicItem,
+      file_type: 'image',
+      file_path: '/media/cursos/direito/foto.jpg',
+      duration_seconds: 15,
+    }
+    renderDisplay()
+    const player = screen.getByTestId('video-player')
+    expect(player).toHaveAttribute('data-content-type', 'image')
+    expect(player).toHaveAttribute('data-url', '/media/cursos/direito/foto.jpg')
+    act(() => { vi.advanceTimersByTime(14_999) })
+    expect(programming.markCurrentCompleted).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(programming.markCurrentCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('fixo em imagem usa o player de imagem e não atrasa o conteúdo acadêmico', () => {
+    vi.useFakeTimers()
+    const banner: ProgrammingQueueItem = { ...FIXED, file_type: 'image', file_path: '/media/fixos/banner.png' }
+    programming.fixedContent = [banner]
+    programming.nextFixedId = banner.id
+    programming.isFixedDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
+    act(() => { vi.advanceTimersByTime(15_000) })
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('fixed', banner.id)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalledWith('informativo', expect.anything())
+  })
+
   it('registra cada conteúdo exibido uma única vez', () => {
     programming.contentShown = 3
 
@@ -307,5 +392,78 @@ describe('TvDisplay — cadência dos slides especiais', () => {
 
     endPhase() // vai para o relógio, que não é conteúdo
     expect(programming.markContentShown).toHaveBeenCalledTimes(1)
+  })
+
+  it('usa 20 segundos para o relógio na programação normal', () => {
+    vi.useFakeTimers()
+    programming.contentShown = 3
+
+    renderDisplay()
+    endPhase() // conteúdo fecha o marco → relógio
+
+    act(() => { vi.advanceTimersByTime(CLOCK_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('video-player')).toBeInTheDocument()
+  })
+
+  it('estende a espera para 45s no relógio e 60s no clima, sem contar conteúdo', () => {
+    vi.useFakeTimers()
+    programming.queue = [academicItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    renderDisplay()
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    act(() => { vi.advanceTimersByTime(WEATHER_WAIT_DISPLAY_MS - 1) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
+    expect(programming.markContentShown).not.toHaveBeenCalled()
+  })
+
+  it('retoma no meio do slide prolongado com vinheta antes do vídeo elegível', () => {
+    vi.useFakeTimers()
+    const eligibleItem = { ...academicItem, course_trailer: '/media/vinheta-curso-a.mp4' }
+    programming.queue = [eligibleItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    const { rerender } = renderDisplay()
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    // O contexto libera o vídeo sem reiniciar o app; a transição acontece
+    // imediatamente, sem esperar os 60s do clima.
+    programming.currentItem = eligibleItem
+    programming.isWaitingForEligible = false
+    rerender(<TvDisplay deviceId="tv-1" />)
+
+    expect(screen.queryByTestId('weather-slide')).toBeNull()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', '/media/vinheta-curso-a.mp4')
+  })
+
+  it('não marca o vídeo como assistido ao retomar de uma sequência mais curta', () => {
+    vi.useFakeTimers()
+    programming.queue = [academicItem]
+    programming.currentItem = null
+    programming.isWaitingForEligible = true
+
+    const { rerender } = renderDisplay()
+    act(() => { vi.advanceTimersByTime(CLOCK_WAIT_DISPLAY_MS) })
+    expect(screen.getByTestId('weather-slide')).toBeInTheDocument()
+
+    programming.currentItem = academicItem
+    programming.isWaitingForEligible = false
+    rerender(<TvDisplay deviceId="tv-1" />)
+
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    expect(programming.markCurrentCompleted).not.toHaveBeenCalled()
   })
 })

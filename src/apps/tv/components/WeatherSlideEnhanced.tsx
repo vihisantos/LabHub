@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { CloudSun, Wind, Thermometer, Droplets } from 'lucide-react'
+import { listLocalMedia, toLocalUrl, type LocalMediaFile } from '../services/localProgramming'
 import {
-  Cloud, CloudRain, CloudSun, Sun, CloudSnow,
-  CloudLightning, CloudDrizzle, Wind, Thermometer, Droplets
-} from 'lucide-react'
+  discoverWeatherVideos,
+  WEATHER_CODE_DESCRIPTIONS,
+  weatherVisual,
+  type WeatherVideoKey,
+} from '../services/weatherPresentation'
 
 /**
  * Coordenadas de Piracicaba, SP, Brasil (Open-Meteo)
@@ -12,7 +16,7 @@ const CITY = {
   name: 'Piracicaba,BR',
   label: 'Piracicaba',
   lat: -22.7253,
-  lon: -47.6492
+  lon: -47.6492,
 }
 
 /**
@@ -20,38 +24,6 @@ const CITY = {
  * independente da configuração de fuso do Windows da TV.
  */
 const TV_TIME_ZONE = 'America/Sao_Paulo'
-
-const WEATHER_CODE_DESCRIPTIONS: Record<number, {
-  description: string;
-  category: 'clear' | 'partly_cloudy' | 'cloudy' | 'fog' | 'rain' | 'snow' | 'storm' | 'drizzle'
-}> = {
-  0: { description: 'Céu claro', category: 'clear' },
-  1: { description: 'Poucas nuvens', category: 'partly_cloudy' },
-  2: { description: 'Parcialmente nublado', category: 'partly_cloudy' },
-  3: { description: 'Nublado', category: 'cloudy' },
-  45: { description: 'Nevoeiro', category: 'fog' },
-  48: { description: 'Nevoeiro', category: 'fog' },
-  51: { description: 'Garoa leve', category: 'drizzle' },
-  53: { description: 'Garoa moderada', category: 'rain' },
-  55: { description: 'Garoa intensa', category: 'rain' },
-  61: { description: 'Chuva leve', category: 'rain' },
-  63: { description: 'Chuva moderada', category: 'rain' },
-  65: { description: 'Chuva forte', category: 'rain' },
-  66: { description: 'Chuva leve gelada', category: 'rain' },
-  67: { description: 'Chuva forte gelada', category: 'rain' },
-  71: { description: 'Neve leve', category: 'snow' },
-  73: { description: 'Neve moderada', category: 'snow' },
-  75: { description: 'Neve forte', category: 'snow' },
-  77: { description: 'Grãos de neve', category: 'snow' },
-  80: { description: 'Pancadas de chuva', category: 'rain' },
-  81: { description: 'Pancadas moderadas', category: 'rain' },
-  82: { description: 'Pancadas fortes', category: 'rain' },
-  85: { description: 'Granizo leve', category: 'snow' },
-  86: { description: 'Granizo forte', category: 'snow' },
-  95: { description: 'Temporal com trovoadas', category: 'storm' },
-  96: { description: 'Temporal com granizo', category: 'storm' },
-  97: { description: 'Temporal intenso', category: 'storm' },
-}
 
 interface WeatherData {
   city: string
@@ -65,12 +37,15 @@ interface WeatherData {
   isDay: boolean
   tempMin?: number
   tempMax?: number
+  /** Probabilidade máxima de precipitação do dia (open-meteo `daily`). */
+  rainProbability?: number
   /** Momento da última leitura bem-sucedida da API. */
   updatedAt?: number
 }
 
 const CACHE_KEY = 'tv_weather_cache'
-const CACHE_DURATION_MS = 10 * 60 * 1000
+/** Atualização dos dados a cada 15 minutos (também usada para identificar cache velho). */
+const CACHE_DURATION_MS = 15 * 60 * 1000
 
 const CARDINALS = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO']
 
@@ -86,17 +61,38 @@ function formatUpdatedAt(ts: number): string {
   })
 }
 
+function isStale(data: WeatherData): boolean {
+  return !data.updatedAt || Date.now() - data.updatedAt >= CACHE_DURATION_MS
+}
+
 /**
- * Slide de clima/tempo (tema clean institucional), exibido periodicamente na programação.
+ * Weather Slide 2.0 — clima em tela cheia com vídeo local da pasta `Clima/` do
+ * Drive, ícones animados Meteocons (MIT) e dados da Open-Meteo.
  *
- * Layout full-bleed em três faixas (header / main / footer), o mesmo esqueleto
- * do ClockSlide: os dois slides aparecem em sequência na TV, então compartilham
- * header, rodapé e paleta para parecerem um pacote só.
+ * O vídeo nunca entra no rodízio acadêmico: os caminhos vêm de um filtro
+ * exclusivo da pasta `Clima/`, relidos a cada exibição do slide. Sem vídeo
+ * disponível, o fundo neutro animado continua legível na TV.
+ *
+ * Duração e frequência são controladas pelo TvDisplay (15s, a cada 8
+ * conteúdos); este componente apenas busca dados a cada 15 min.
  */
 export function WeatherSlideEnhanced() {
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [weatherVideos, setWeatherVideos] = useState<Partial<Record<WeatherVideoKey, string>>>({})
+  const [videoFailed, setVideoFailed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    // Cada montagem relê o Drive: trocas de vídeo não ficam presas em cache.
+    void listLocalMedia()
+      .then((files: LocalMediaFile[]) => {
+        if (!cancelled) setWeatherVideos(discoverWeatherVideos(files))
+      })
+      .catch(() => { if (!cancelled) setWeatherVideos({}) })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -117,7 +113,7 @@ export function WeatherSlideEnhanced() {
         const response = await fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${CITY.lat}&longitude=${CITY.lon}` +
           '&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m' +
-          '&daily=temperature_2m_min,temperature_2m_max&timezone=America%2FSao_Paulo' +
+          '&daily=temperature_2m_min,temperature_2m_max,precipitation_probability_max&timezone=America%2FSao_Paulo' +
           '&wind_speed_unit=kmh&temperature_unit=celsius&precipitation_unit=mm&forecast_days=1',
           { signal: controller.signal },
         )
@@ -144,6 +140,9 @@ export function WeatherSlideEnhanced() {
           isDay: (current.is_day ?? 1) === 1,
           tempMin: data.daily?.temperature_2m_min?.[0] != null ? Math.round(data.daily.temperature_2m_min[0]) : undefined,
           tempMax: data.daily?.temperature_2m_max?.[0] != null ? Math.round(data.daily.temperature_2m_max[0]) : undefined,
+          rainProbability: data.daily?.precipitation_probability_max?.[0] != null
+            ? Math.round(data.daily.precipitation_probability_max[0])
+            : undefined,
           updatedAt: Date.now(),
         }
 
@@ -174,103 +173,139 @@ export function WeatherSlideEnhanced() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma vez no mount; o cache é lido dentro do efeito
   }, [])
 
-  if (loading && !weather) {
-    return (
-      <SlideShell isDay={true} badge="Clima agora">
-        <main style={styles.main}>
-          <div style={styles.iconTile}>
-            <CloudSun size={150} strokeWidth={1.25} style={styles.icon} />
-          </div>
-          <div style={styles.readout}>
-            <span style={styles.city}>Piracicaba</span>
-            <span style={styles.loadingText}>Carregando clima…</span>
-          </div>
-        </main>
-        <SlideFooter right="Aguardando dados" />
-      </SlideShell>
-    )
-  }
+  const visual = weather
+    ? weatherVisual(weather.weatherCode, weather.isDay)
+    : weatherVisual(0, true)
+  const videoKey = visual.videoKey
+  const videoPath = videoKey && !videoFailed ? weatherVideos[videoKey] : undefined
+  const videoSrc = videoPath ? toLocalUrl(videoPath) : null
+  const stale = weather ? isStale(weather) : false
 
-  if (!weather) {
-    return (
-      <SlideShell isDay={true} badge="Clima agora">
-        <main style={styles.main}>
-          <div style={styles.iconTile}>
-            <Sun size={150} strokeWidth={1.25} style={styles.iconMuted} />
-          </div>
-          <div style={styles.readout}>
-            <span style={styles.city}>Piracicaba</span>
-            <div style={styles.tempRow}>
-              <span style={styles.temp}>--°</span>
-            </div>
-            <span style={styles.description}>{error ?? 'Dados climáticos indisponíveis'}</span>
-          </div>
-        </main>
-        <SlideFooter right="Sem conexão com a API" />
-      </SlideShell>
-    )
-  }
-
-  const MainIcon = weatherIcon(weather.weatherCode)
-  const isStorm = (WEATHER_CODE_DESCRIPTIONS[weather.weatherCode]?.category ?? 'clear') === 'storm'
+  // Uma mídia quebrada não inibe a próxima condição/vídeo trocado no Drive.
+  useEffect(function() { setVideoFailed(false) }, [videoKey, weatherVideos])
 
   return (
-    <SlideShell isDay={weather.isDay} badge="Clima agora">
-      <main style={styles.main}>
+    <SlideShell
+      isDay={weather?.isDay ?? true}
+      badge="Clima agora"
+      videoSrc={videoSrc}
+      onVideoError={() => setVideoFailed(true)}
+    >
+      <style>{WEATHER_ANIMATIONS}</style>
+      <main className="labhub-weather-main" style={styles.main}>
         <div style={styles.iconTile}>
-          <MainIcon size={150} strokeWidth={1.25} style={isStorm ? styles.iconStorm : styles.icon} />
-          <span style={isStorm ? styles.conditionStorm : styles.condition}>{weather.description}</span>
+          <img
+            className="labhub-weather-icon"
+            src={`${import.meta.env.BASE_URL}meteocons/${visual.icon}`}
+            alt={weather ? visual.description : 'Condição meteorológica'}
+            style={styles.icon}
+          />
+          {weather && (
+            <span style={visual.category === 'storm' ? styles.conditionStorm : styles.condition}>
+              {visual.description}
+            </span>
+          )}
+          {loading && !weather && <span style={styles.loadingText}>Carregando clima…</span>}
+          {!loading && !weather && (
+            <span style={styles.description}>{error ?? 'Dados climáticos indisponíveis'}</span>
+          )}
         </div>
 
         <div style={styles.readout}>
           <div style={styles.cityRow}>
-            <span style={styles.city}>{weather.city}</span>
+            <span style={styles.city}>{CITY.label}</span>
             <span style={styles.region}>SP · Brasil</span>
           </div>
 
           <div style={styles.tempRow}>
-            <span style={styles.temp}>{weather.temp}°</span>
-            <span style={styles.tempUnit}>C</span>
+            <span style={styles.temp}>{weather ? `${weather.temp}°` : '--°'}</span>
+            {weather && <span style={styles.tempUnit}>C</span>}
           </div>
 
-          {weather.feelsLike != null && (
+          {weather?.feelsLike != null && (
             <span style={styles.feelsLike}>Sensação de {weather.feelsLike}°</span>
           )}
 
           <div style={styles.chips}>
-            {weather.tempMin != null && weather.tempMax != null && (
+            {weather?.tempMin != null && weather.tempMax != null && (
               <div style={styles.chip}>
                 <Thermometer size={20} style={styles.chipIcon} />
                 <span>{weather.tempMin}° / {weather.tempMax}°</span>
               </div>
             )}
-            <div style={styles.chip}>
-              <Wind size={20} style={styles.chipIcon} />
-              <span>{weather.windSpeed} km/h · {cardinal(weather.windDirection)}</span>
-            </div>
-            {weather.humidity != null && (
+            {weather && (
+              <div style={styles.chip}>
+                <Wind size={20} style={styles.chipIcon} />
+                <span>{weather.windSpeed} km/h · {cardinal(weather.windDirection)}</span>
+              </div>
+            )}
+            {weather?.humidity != null && (
               <div style={styles.chip}>
                 <Droplets size={20} style={styles.chipIcon} />
                 <span>{weather.humidity}%</span>
+              </div>
+            )}
+            {weather?.rainProbability != null && (
+              <div style={styles.chip}>
+                <span style={styles.chipIcon}>☂</span>
+                <span>Previsão de chuva · {weather.rainProbability}%</span>
               </div>
             )}
           </div>
         </div>
       </main>
 
-      <SlideFooter right={weather.updatedAt ? `Atualizado às ${formatUpdatedAt(weather.updatedAt)}` : '—'} />
+      <SlideFooter
+        right={
+          !weather
+            ? 'Sem conexão com a API'
+            : stale
+              ? `Dados desatualizados${weather.updatedAt ? ` · ${formatUpdatedAt(weather.updatedAt)}` : ''}`
+              : weather.updatedAt
+                ? `Atualizado às ${formatUpdatedAt(weather.updatedAt)}`
+                : '—'
+        }
+      />
     </SlideShell>
   )
 }
 
 /**
  * Esqueleto compartilhado com o ClockSlide: fundo, header e faixas.
+ * O vídeo fica abaixo do conteúdo, com máscara escura para legibilidade.
  */
-function SlideShell({ isDay, badge, children }: { isDay: boolean; badge: string; children: ReactNode }) {
+function SlideShell({
+  isDay,
+  badge,
+  videoSrc,
+  onVideoError,
+  children,
+}: {
+  isDay: boolean
+  badge: string
+  videoSrc: string | null
+  onVideoError?: () => void
+  children: ReactNode
+}) {
   return (
     <div style={{ ...styles.container, background: isDay ? DAY_BG : NIGHT_BG }}>
-      <div style={styles.glowA} />
-      <div style={styles.glowB} />
+      {videoSrc && (
+        <video
+          className="labhub-weather-video"
+          key={videoSrc}
+          src={videoSrc}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          onError={onVideoError}
+        />
+      )}
+      <div style={styles.videoScrim} />
+      <div className="labhub-weather-orb-a" style={styles.glowA} />
+      <div className="labhub-weather-orb-b" style={styles.glowB} />
       <div style={styles.hairline} />
 
       <header style={styles.header}>
@@ -301,20 +336,25 @@ function SlideFooter({ right }: { right: string }) {
   )
 }
 
-const DAY_BG = 'linear-gradient(135deg, #f8fafc 0%, #ffffff 45%, #eef2f7 100%)'
-const NIGHT_BG = 'linear-gradient(135deg, #eef2f8 0%, #e7ecf6 45%, #dfe6f2 100%)'
+const DAY_BG = 'linear-gradient(135deg, #0f2027 0%, #1d3a4a 45%, #244b52 100%)'
+const NIGHT_BG = 'linear-gradient(135deg, #0b1220 0%, #152238 45%, #1c2a40 100%)'
 
-function weatherIcon(weatherCode: number) {
-  if (weatherCode >= 95) return CloudLightning
-  if (weatherCode >= 80) return CloudRain
-  if (weatherCode >= 71) return CloudSnow
-  if (weatherCode >= 61) return CloudRain
-  if (weatherCode >= 51) return CloudDrizzle
-  if (weatherCode === 45 || weatherCode === 48) return Cloud
-  if (weatherCode === 0) return Sun
-  if (weatherCode <= 3) return CloudSun
-  return Cloud
+/** Animações só de transform/opacity: baratas mesmo em TVs com GPU modesta. */
+const WEATHER_ANIMATIONS = `
+.labhub-weather-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.82; animation: labhub-weather-fade 900ms ease-out both; }
+.labhub-weather-main { animation: labhub-weather-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.labhub-weather-orb-a { animation: labhub-weather-drift-a 18s ease-in-out infinite alternate; }
+.labhub-weather-orb-b { animation: labhub-weather-drift-b 22s ease-in-out infinite alternate; }
+.labhub-weather-icon { width: 100%; height: 100%; object-fit: contain; animation: labhub-weather-float 6s ease-in-out infinite; filter: drop-shadow(0 18px 32px rgba(0,0,0,0.28)); }
+@keyframes labhub-weather-fade { from { opacity: 0; } to { opacity: 0.82; } }
+@keyframes labhub-weather-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes labhub-weather-drift-a { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(3rem,2rem,0) scale(1.08); } }
+@keyframes labhub-weather-drift-b { from { transform: translate3d(0,0,0) scale(1.04); } to { transform: translate3d(-2rem,-3rem,0) scale(0.96); } }
+@keyframes labhub-weather-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) {
+  .labhub-weather-video, .labhub-weather-main, .labhub-weather-orb-a, .labhub-weather-orb-b, .labhub-weather-icon { animation: none; }
 }
+`
 
 function saveToLocalStorage(data: WeatherData) {
   try {
@@ -344,14 +384,21 @@ const styles: Record<string, CSSProperties> = {
     padding: 'clamp(1.75rem, 4vh, 3rem) clamp(2rem, 5vw, 4.5rem)',
     boxSizing: 'border-box',
     overflow: 'hidden',
+    color: '#f8fafc',
     fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, sans-serif',
+  },
+  videoScrim: {
+    position: 'absolute',
+    inset: 0,
+    background: 'linear-gradient(90deg, rgba(7,14,24,0.88) 0%, rgba(7,14,24,0.62) 52%, rgba(7,14,24,0.28) 100%)',
+    pointerEvents: 'none',
   },
   glowA: {
     position: 'absolute',
     width: '44rem',
     height: '44rem',
     borderRadius: '9999px',
-    background: 'radial-gradient(circle, rgba(14, 116, 144, 0.14) 0%, transparent 70%)',
+    background: 'radial-gradient(circle, rgba(56, 189, 248, 0.18) 0%, transparent 70%)',
     top: '-18rem',
     left: '-12rem',
     pointerEvents: 'none',
@@ -361,7 +408,7 @@ const styles: Record<string, CSSProperties> = {
     width: '38rem',
     height: '38rem',
     borderRadius: '9999px',
-    background: 'radial-gradient(circle, rgba(13, 148, 136, 0.12) 0%, transparent 70%)',
+    background: 'radial-gradient(circle, rgba(45, 212, 191, 0.14) 0%, transparent 70%)',
     bottom: '-14rem',
     right: '-10rem',
     pointerEvents: 'none',
@@ -372,8 +419,8 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     width: '100%',
     height: 4,
-    background: 'linear-gradient(90deg, #0e7490 0%, #0d9488 45%, #1e40af 75%, transparent 100%)',
-    opacity: 0.85,
+    background: 'linear-gradient(90deg, #38bdf8 0%, #2dd4bf 45%, #818cf8 75%, transparent 100%)',
+    opacity: 0.9,
   },
   header: {
     position: 'relative',
@@ -389,9 +436,9 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.55rem',
     padding: '0.5rem 1.05rem',
     borderRadius: 9999,
-    background: 'rgba(14, 116, 144, 0.10)',
-    border: '1px solid rgba(14, 116, 144, 0.18)',
-    color: '#155e75',
+    background: 'rgba(255, 255, 255, 0.12)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    color: '#e0f2fe',
     fontSize: 'clamp(0.95rem, 1.15vw, 1.15rem)',
     fontWeight: 700,
     letterSpacing: '0.06em',
@@ -406,12 +453,12 @@ const styles: Record<string, CSSProperties> = {
     width: 10,
     height: 10,
     borderRadius: 9999,
-    background: 'linear-gradient(135deg, #0d9488, #1e40af)',
+    background: 'linear-gradient(135deg, #2dd4bf, #818cf8)',
   },
   brand: {
     fontSize: 'clamp(0.85rem, 1vw, 1rem)',
     fontWeight: 700,
-    color: '#94a3b8',
+    color: 'rgba(226, 232, 240, 0.7)',
     letterSpacing: '0.16em',
     textTransform: 'uppercase',
   },
@@ -431,39 +478,31 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '0.75rem',
-    width: 'clamp(210px, 22vw, 300px)',
-    height: 'clamp(210px, 22vw, 300px)',
+    width: 'clamp(190px, 20vw, 280px)',
+    height: 'clamp(190px, 20vw, 280px)',
+    padding: 'clamp(1rem, 1.5vw, 1.5rem)',
+    boxSizing: 'border-box',
     borderRadius: 'clamp(28px, 3vw, 40px)',
-    background: 'rgba(255, 255, 255, 0.72)',
-    border: '1px solid rgba(15, 23, 42, 0.08)',
-    boxShadow: '0 22px 55px rgba(15, 23, 42, 0.09)',
+    background: 'rgba(255, 255, 255, 0.10)',
+    border: '1px solid rgba(255, 255, 255, 0.18)',
+    boxShadow: '0 22px 55px rgba(0, 0, 0, 0.18)',
   },
   icon: {
-    color: '#0f766e',
-    filter: 'drop-shadow(0 10px 22px rgba(13, 148, 136, 0.22))',
-  },
-  iconStorm: {
-    color: '#1d4ed8',
-    filter: 'drop-shadow(0 10px 22px rgba(29, 78, 216, 0.25))',
-  },
-  iconMuted: {
-    color: '#cbd5e1',
+    display: 'block',
+    width: '72%',
+    height: '72%',
   },
   condition: {
     fontSize: 'clamp(1.05rem, 1.5vw, 1.45rem)',
     fontWeight: 600,
-    color: '#475569',
+    color: '#e2e8f0',
     textAlign: 'center',
-    padding: '0 1rem',
-    textTransform: 'capitalize',
   },
   conditionStorm: {
     fontSize: 'clamp(1.05rem, 1.5vw, 1.45rem)',
     fontWeight: 700,
-    color: '#1d4ed8',
+    color: '#fca5a5',
     textAlign: 'center',
-    padding: '0 1rem',
-    textTransform: 'capitalize',
   },
   readout: {
     display: 'flex',
@@ -481,13 +520,13 @@ const styles: Record<string, CSSProperties> = {
   city: {
     fontSize: 'clamp(1.7rem, 2.8vw, 2.6rem)',
     fontWeight: 700,
-    color: '#1e293b',
+    color: '#ffffff',
     letterSpacing: '-0.01em',
   },
   region: {
     fontSize: 'clamp(0.95rem, 1.2vw, 1.2rem)',
     fontWeight: 600,
-    color: '#94a3b8',
+    color: 'rgba(226, 232, 240, 0.7)',
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
   },
@@ -501,30 +540,29 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontVariantNumeric: 'tabular-nums',
     lineHeight: 0.9,
-    color: '#0f172a',
+    color: '#ffffff',
     letterSpacing: '-0.05em',
-    textShadow: '0 18px 45px rgba(15, 23, 42, 0.12)',
+    textShadow: '0 18px 45px rgba(0, 0, 0, 0.28)',
   },
   tempUnit: {
     fontSize: 'clamp(1.6rem, 3vw, 2.75rem)',
     fontWeight: 700,
-    color: '#64748b',
+    color: 'rgba(226, 232, 240, 0.8)',
     marginTop: 'clamp(0.4rem, 2vw, 1.2rem)',
   },
   feelsLike: {
     fontSize: 'clamp(1rem, 1.3vw, 1.25rem)',
     fontWeight: 500,
-    color: '#64748b',
+    color: 'rgba(226, 232, 240, 0.85)',
   },
   description: {
     fontSize: 'clamp(1.1rem, 1.6vw, 1.5rem)',
-    color: '#475569',
+    color: '#e2e8f0',
     fontWeight: 500,
-    textTransform: 'capitalize',
   },
   loadingText: {
     fontSize: 'clamp(1.2rem, 1.8vw, 1.6rem)',
-    color: '#64748b',
+    color: '#e2e8f0',
     fontWeight: 500,
   },
   chips: {
@@ -539,20 +577,20 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.5rem',
     padding: '0.55rem 1rem',
     borderRadius: 9999,
-    background: 'rgba(255, 255, 255, 0.85)',
-    border: '1px solid rgba(15, 23, 42, 0.08)',
-    color: '#334155',
+    background: 'rgba(255, 255, 255, 0.12)',
+    border: '1px solid rgba(255, 255, 255, 0.18)',
+    color: '#f1f5f9',
     fontSize: 'clamp(0.95rem, 1.15vw, 1.15rem)',
     fontWeight: 600,
   },
   chipIcon: {
-    color: '#0f766e',
+    color: '#7dd3fc',
   },
   divider: {
     position: 'relative',
     height: 1,
     width: '100%',
-    background: 'rgba(15, 23, 42, 0.08)',
+    background: 'rgba(255, 255, 255, 0.18)',
     marginBottom: 'clamp(0.75rem, 1.6vh, 1.25rem)',
     zIndex: 1,
   },
@@ -563,7 +601,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: '1rem',
     flexWrap: 'wrap',
-    color: '#94a3b8',
+    color: 'rgba(226, 232, 240, 0.75)',
     fontSize: 'clamp(0.85rem, 1vw, 1rem)',
     fontWeight: 600,
     letterSpacing: '0.08em',

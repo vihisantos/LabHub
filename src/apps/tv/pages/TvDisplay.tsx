@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import './TvDisplay.css'
 import { isKiosk } from '../utils/kiosk'
 import { useProgramming } from '../contexts/ProgrammingContext'
+import { useSignedTvUpdate } from '../hooks/useSignedTvUpdate'
 import { toLocalUrl } from '../services/localProgramming'
 import type { ProgrammingQueueItem } from '../types'
 import { VideoPlayer } from '../components/VideoPlayer'
@@ -27,17 +28,21 @@ import { SeasonalEffects } from '../components/SeasonalEffects'
  * fase simplesmente não entra na sequência.
  *
  * SLIDES ESPECIAIS (ClockSlide e WeatherSlideEnhanced):
- * - ClockSlide: a cada 4 conteúdos, 12 segundos
- * - WeatherSlideEnhanced: a cada 8 conteúdos, 15 segundos
+ * - ClockSlide: a cada 4 conteúdos, 20 segundos (45 s na espera por cooldown)
+ * - WeatherSlideEnhanced: a cada 8 conteúdos, 30 segundos (60 s na espera)
  * - Conta TODO conteúdo exibido: acadêmico, fixo e informativo. Slides
  *   especiais e galerias NÃO contam como conteúdo.
  * - O slide entra imediatamente depois do conteúdo que fecha o marco
  * - Quando coincidem (múltiplo de 8), ambos são exibidos sequencialmente
+ * - Se um vídeo voltar a ficar elegível, a espera termina no limite do slide
+ *   atual e a vinheta volta a abrir o conteúdo acadêmico.
  */
 
 // Duration constants (in milliseconds)
-const CLOCK_DISPLAY_MS = 12000
-const WEATHER_DISPLAY_MS = 15000
+export const CLOCK_DISPLAY_MS = 20_000
+export const WEATHER_DISPLAY_MS = 30_000
+export const CLOCK_WAIT_DISPLAY_MS = 45_000
+export const WEATHER_WAIT_DISPLAY_MS = 60_000
 
 export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string } = {}) {
   const programming = useProgramming()
@@ -57,9 +62,11 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     photosMap,
     ready,
     discoveryError,
+    isWaitingForEligible = false,
     markCurrentCompleted,
+    markSpecialContentCompleted,
     reportMediaFailure,
-    resetInformativoCounter,
+    failedIds = [],
   } = programming
 
   const [failedGalleries, setFailedGalleries] = useState(new Set<string>())
@@ -105,8 +112,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   const fixedItem = useMemo(function() {
     if (!isFixedDue || !nextFixedId) return null
-    return fixedContent.find(function(f) { return f.id === nextFixedId }) ?? null
-  }, [isFixedDue, nextFixedId, fixedContent])
+    return fixedContent.find(function(f) { return f.id === nextFixedId && !failedIds.includes(f.id) }) ?? null
+  }, [isFixedDue, nextFixedId, fixedContent, failedIds])
 
   // Quantos conteúdos já tinham sido exibidos quando o ciclo atual começou.
   // Serve de base para a cadência dos slides especiais dentro do ciclo.
@@ -116,6 +123,11 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   // Gerar a sequência de fases incluindo vinhetas e slides especiais
   const phaseSequence = useMemo<Phase[]>(function() {
     const seq: Phase[] = []
+    // Todos os vídeos acadêmicos ainda em cooldown: espera com slides, sem
+    // tocar vinhetas avulsas ou consumir os contadores acadêmicos.
+    if (isWaitingForEligible) {
+      return [{ type: 'clock' }, { type: 'weather-enhanced' }]
+    }
 
     // Cadência dos slides especiais: todo conteúdo exibido conta (acadêmico,
     // fixo e informativo). `played` parte da base do ciclo para que a sequência
@@ -126,7 +138,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       seq.push(phase)
       played += 1
       if (played % 8 === 0) {
-        // Múltiplo de 8: clima (15s) e, na sequência, o relógio (12s)
+        // Múltiplo de 8: clima e, na sequência, o relógio (durações adaptativas)
         seq.push({ type: 'weather-enhanced' })
         seq.push({ type: 'clock' })
       } else if (played % 4 === 0) {
@@ -166,33 +178,59 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       seq.push({ type: 'gallery', galleryId: g.id })
     }
 
-    return seq.length > 0 ? seq : [{ type: 'video', item: null }]
-  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries])
+    return seq.length > 0 ? seq : ready ? [{ type: 'clock' }, { type: 'weather-enhanced' }] : [{ type: 'video', item: null }]
+  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries, ready, queue.length, isWaitingForEligible])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
   const [cycleCompleted, setCycleCompleted] = useState(0)
+  /** Chave da fase especial já concluída (evita registrar duas vezes). */
+  const specialCompletedRef = useRef('')
   const currentPhase = phaseSequence[phaseIdx]
   const isVideoPhase = currentPhase?.type === 'video'
 
+  // A espera por cooldown e a programação normal têm sequências diferentes.
+  // Ao trocar de uma para outra, recomeçamos no limite (nunca no meio de um
+  // vídeo): a volta sempre começa pela vinheta do conteúdo elegível.
+  const wasWaitingRef = useRef(isWaitingForEligible)
+  useEffect(function() {
+    if (wasWaitingRef.current === isWaitingForEligible) return
+    wasWaitingRef.current = isWaitingForEligible
+    setPhaseIdx(0)
+    specialCompletedRef.current = ''
+  }, [isWaitingForEligible])
+
   const PHOTO_DISPLAY_MS = 15000
+  const installAtBoundary = useSignedTvUpdate(ready)
 
   // Separa o setState do efeito colateral (markCurrentCompleted)
   // para seguir o padrão correto do React — sem chamar funções externas
   // dentro de callbacks de setState.
   const advancePhase = useCallback(function() {
-    setPhaseIdx(function(i) {
-      const next = i + 1
-      if (next >= phaseSequence.length) {
-        // Ciclo completo: sinaliza via contador separado e volta ao índice 0
-        setCycleCompleted(function(c) { return c + 1 })
-        return 0
-      }
-      return next
-    })
-  }, [phaseSequence.length])
+    const proceed = () => {
+      setPhaseIdx(function(i) {
+        const next = i + 1
+        if (next >= phaseSequence.length) {
+          setCycleCompleted(function(c) { return c + 1 })
+          return 0
+        }
+        return next
+      })
+    }
+    if (phaseIdx + 1 >= phaseSequence.length && installAtBoundary(proceed)) return
+    proceed()
+  }, [phaseSequence.length, phaseIdx, installAtBoundary])
 
-  // Reage ao fim de um ciclo: avança a fila de programação
+  /** Registra a conclusão de fixo/informativo no fim real da mídia. */
+  const markSpecialOnce = useCallback(function(phase: PhaseFixed | PhaseInformative) {
+    const key = cycleCompleted + ':' + phaseIdx + ':' + phase.item.id
+    if (specialCompletedRef.current === key) return
+    specialCompletedRef.current = key
+    markSpecialContentCompleted(phase.type, phase.item.id)
+  }, [cycleCompleted, phaseIdx, markSpecialContentCompleted])
+
+  // Reage ao fim de um ciclo: avança a fila de programação. Fixos e
+  // informativos já foram registrados no fim de suas próprias fases.
   useEffect(function() {
     if (cycleCompleted === 0) return
     setCycleBaseContents(contentShown)
@@ -217,6 +255,10 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   }, [currentPhase, phaseIdx, cycleCompleted, markContentShown])
 
   const handleContentCompleted = useCallback(function(failed?: boolean) {
+    // Fim real do vídeo: aqui sim o conteúdo entra no histórico da rodada.
+    if (!failed && (currentPhase?.type === 'informativo' || currentPhase?.type === 'fixed')) {
+      markSpecialOnce(currentPhase)
+    }
     if (failed) {
       const failedId = currentPhase?.type === 'fixed' || currentPhase?.type === 'informativo'
         ? currentPhase.item.id
@@ -224,7 +266,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       if (failedId) reportMediaFailure(failedId)
     }
     advancePhase()
-  }, [advancePhase, currentPhase, reportMediaFailure])
+  }, [advancePhase, currentPhase, reportMediaFailure, markSpecialOnce])
 
   // Fila vazia: pula a fase de vídeo para não prender o ciclo.
   useEffect(function() {
@@ -276,8 +318,12 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   const currentPhaseDurationMs = useMemo(function() {
     if (!currentPhase) return null
-    if (currentPhase.type === 'weather-enhanced') return WEATHER_DISPLAY_MS
-    if (currentPhase.type === 'clock') return CLOCK_DISPLAY_MS
+    if (currentPhase.type === 'weather-enhanced') {
+      return isWaitingForEligible ? WEATHER_WAIT_DISPLAY_MS : WEATHER_DISPLAY_MS
+    }
+    if (currentPhase.type === 'clock') {
+      return isWaitingForEligible ? CLOCK_WAIT_DISPLAY_MS : CLOCK_DISPLAY_MS
+    }
     if (currentPhase.type === 'trailer') return null // Vídeo da vinheta: duração original (via onEnd)
     if (currentPhase.type === 'informativo') {
       return currentPhase.item.file_type === 'image' ? PHOTO_DISPLAY_MS : null
@@ -295,19 +341,20 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       return photos && photos.length > 0 ? photos.length * PHOTO_DISPLAY_MS : 3000
     }
     return null
-  }, [currentPhase, isVideoPhase, photosMap, PHOTO_DISPLAY_MS, WEATHER_DISPLAY_MS, CLOCK_DISPLAY_MS])
+  }, [currentPhase, isVideoPhase, photosMap, PHOTO_DISPLAY_MS, WEATHER_DISPLAY_MS, CLOCK_DISPLAY_MS, WEATHER_WAIT_DISPLAY_MS, CLOCK_WAIT_DISPLAY_MS, isWaitingForEligible])
 
   useEffect(function() {
     if (currentPhaseDurationMs === null) return
-    // Informativo em imagem termina pelo timer (não há onEnd): zera o contador
-    // aqui também, senão ele continuaria "devido" e voltaria em todo ciclo.
-    const isInformativo = currentPhase?.type === 'informativo'
+    // Fixo/informativo em imagem terminam pelo timer; a conclusão é gravada
+    // aqui, no fim efetivo da mídia — não no início nem no limite da sequência.
+    const special = currentPhase?.type === 'informativo' || currentPhase?.type === 'fixed'
+      ? currentPhase : null
     const timer = setTimeout(function() {
-      if (isInformativo) resetInformativoCounter()
+      if (special) markSpecialOnce(special)
       advancePhase()
     }, currentPhaseDurationMs)
     return function() { clearTimeout(timer) }
-  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx, resetInformativoCounter])
+  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx, markSpecialOnce])
 
   // Sequência mudou: preserva o índice atual. Se ela encolheu a ponto de não
   // haver mais fase nele (ex.: galeria removida por falha de carregamento),
@@ -407,7 +454,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
             source="local"
             contentType={currentPhase.item.file_type}
             isPlaying={true}
-            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+            onEnd={handleContentCompleted}
           />
         </div>
       )}
@@ -428,7 +475,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
             source="local"
             contentType={currentPhase.item.file_type}
             isPlaying={true}
-            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+            onEnd={handleContentCompleted}
           />
         </div>
       )}
