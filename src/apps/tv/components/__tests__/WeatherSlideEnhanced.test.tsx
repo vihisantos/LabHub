@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { WeatherSlideEnhanced } from '../WeatherSlideEnhanced'
+import { listLocalMedia } from '../../services/localProgramming'
+
+vi.mock('../../services/localProgramming', () => ({
+  listLocalMedia: vi.fn(async () => []),
+  toLocalUrl: (path: string) => path,
+}))
 
 interface CurrentOverrides {
   temperature_2m?: number
@@ -12,7 +18,7 @@ interface CurrentOverrides {
   wind_direction_10m?: number
 }
 
-function mockWeather(current: CurrentOverrides = {}) {
+function mockWeather(current: CurrentOverrides = {}, daily: Record<string, unknown> = {}) {
   const payload = {
     current: {
       temperature_2m: 25.5,
@@ -24,7 +30,7 @@ function mockWeather(current: CurrentOverrides = {}) {
       wind_direction_10m: 180,
       ...current,
     },
-    daily: { temperature_2m_min: [18.2], temperature_2m_max: [29.7] },
+    daily: { temperature_2m_min: [18.2], temperature_2m_max: [29.7], ...daily },
   }
 
   return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -39,6 +45,8 @@ describe('WeatherSlideEnhanced', () => {
     vi.useRealTimers()
     // O cache vive no localStorage e sobrevive entre testes do mesmo arquivo.
     localStorage.clear()
+    vi.mocked(listLocalMedia).mockReset()
+    vi.mocked(listLocalMedia).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -145,8 +153,8 @@ describe('WeatherSlideEnhanced', () => {
       expect(screen.getByText('Piracicaba')).toBeInTheDocument()
     })
 
-    // NIGHT_BG (#eef2f8) em vez do DAY_BG (#f8fafc)
-    expect(container.firstElementChild?.getAttribute('style')).toMatch(/#eef2f8|238, 242, 248/)
+    // Fundo noturno em vez do fundo diurno
+    expect(container.firstElementChild?.getAttribute('style')).toMatch(/rgb\(11, 18, 32\)|rgb\(15, 32, 39\)/)
   })
 
   it('destaca tempestades com descrição de alerta', async () => {
@@ -186,5 +194,72 @@ describe('WeatherSlideEnhanced', () => {
       unmount()
       vi.restoreAllMocks()
     }
+  })
+
+  it('usa o vídeo da pasta Clima e o ícone Meteocons da condição', async () => {
+    vi.mocked(listLocalMedia).mockResolvedValue([{
+      name: 'chuva.mp4',
+      path: 'G:\\Meu Drive\\LabHub -TV\\Clima\\chuva.mp4',
+      relativePath: 'Clima/chuva.mp4',
+      fileType: 'video',
+      size: 1024,
+    }])
+    mockWeather({ weather_code: 61 })
+
+    const { container } = render(<WeatherSlideEnhanced />)
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).toHaveAttribute('src', 'G:\\Meu Drive\\LabHub -TV\\Clima\\chuva.mp4')
+    })
+    expect(container.querySelector('video')).toHaveAttribute('loop')
+    expect(container.querySelector('img')?.getAttribute('src')).toContain('meteocons/rain.svg')
+    expect(screen.getByAltText('Chuva leve')).toBeInTheDocument()
+  })
+
+  it('seleciona a variante noturna quando is_day é zero', async () => {
+    vi.mocked(listLocalMedia).mockResolvedValue([{
+      name: 'ensolarado-noite.mp4',
+      path: 'G:\\Meu Drive\\LabHub -TV\\Clima\\ensolarado-noite.mp4',
+      relativePath: 'Clima/ensolarado-noite.mp4',
+      fileType: 'video',
+      size: 1024,
+    }])
+    mockWeather({ weather_code: 0, is_day: 0 })
+
+    const { container } = render(<WeatherSlideEnhanced />)
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).toHaveAttribute('src', 'G:\\Meu Drive\\LabHub -TV\\Clima\\ensolarado-noite.mp4')
+    })
+    expect(container.querySelector('img')?.getAttribute('src')).toContain('meteocons/clear-night.svg')
+  })
+
+  it('exibe a probabilidade de chuva como previsão', async () => {
+    mockWeather({ weather_code: 3 }, { precipitation_probability_max: [72] })
+
+    render(<WeatherSlideEnhanced />)
+
+    expect(await screen.findByText('Previsão de chuva · 72%')).toBeInTheDocument()
+  })
+
+  it('identifica dados de cache antigos como desatualizados', async () => {
+    localStorage.setItem('tv_weather_cache', JSON.stringify({
+      timestamp: Date.now() - (16 * 60 * 1000),
+      data: {
+        city: 'Piracicaba',
+        temp: 21,
+        windSpeed: 5,
+        windDirection: 90,
+        description: 'Céu claro',
+        weatherCode: 0,
+        isDay: true,
+        updatedAt: Date.now() - (16 * 60 * 1000),
+      },
+    }))
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+
+    render(<WeatherSlideEnhanced />)
+
+    expect(await screen.findByText(/Dados desatualizados/)).toBeInTheDocument()
   })
 })
