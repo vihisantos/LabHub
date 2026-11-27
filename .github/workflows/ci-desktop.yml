@@ -84,6 +84,9 @@ jobs:
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
+      - name: Rust check (signed updater feature)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --features signed-updater
+
       - name: Rust tests (physical USB test excluded)
         run: cargo test --manifest-path src-tauri/Cargo.toml -- --skip test_usb_key_verification_real
 
@@ -93,7 +96,8 @@ jobs:
       - name: Validate NSIS installer and branding
         shell: pwsh
         run: |
-          $exe = 'src-tauri/target/release/bundle/nsis/LabHub TV_2.4.0_x64-setup.exe'
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $exe = "src-tauri/target/release/bundle/nsis/LabHub TV_${version}_x64-setup.exe"
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw "Instalador NSIS nao encontrado: $exe"
           }

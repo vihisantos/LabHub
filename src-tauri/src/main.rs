@@ -777,12 +777,15 @@ fn check_usb_key(drive_letter: String) -> Result<bool, String> {
     Ok(has_usb_key(&drive_letter) && has_private_key(&drive_letter))
 }
 
+mod signed_updater;
+
 fn main() {
     // Carregar chave embarcada
     let embedded_key = EmbeddedKey::load()
         .expect("Falha ao carregar chave embarcada - verifique embedded-keys.json");
 
-    tauri::Builder::default()
+    let builder = signed_updater::configure(tauri::Builder::default());
+    builder
         .manage(embedded_key)
         .invoke_handler(tauri::generate_handler![
             list_synced_files,
@@ -805,6 +808,8 @@ fn main() {
             check_usb_key,
             is_local_usb_auth_valid,
             get_local_usb_auth,
+            signed_updater::prepare_tv_update,
+            signed_updater::install_tv_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

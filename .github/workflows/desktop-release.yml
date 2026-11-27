@@ -69,7 +69,8 @@ jobs:
       - name: Validate installer and branding
         shell: pwsh
         run: |
-          $exe = 'src-tauri/target/release/bundle/nsis/LabHub TV_2.4.0_x64-setup.exe'
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $exe = "src-tauri/target/release/bundle/nsis/LabHub TV_${version}_x64-setup.exe"
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw "Instalador NSIS nao encontrado: $exe"
           }

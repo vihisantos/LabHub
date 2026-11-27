@@ -1,0 +1,78 @@
+name: LabHub TV signed updater package (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      LABHUB_TV_UPDATER_PUBLIC_KEY: ${{ vars.LABHUB_TV_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_CLOUDINARY_CLOUD_NAME: horytsxg
+      VITE_CLOUDINARY_UPLOAD_PRESET: tv_events
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+      - name: Configure signed updater
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:LABHUB_TV_UPDATER_PUBLIC_KEY) -or [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw 'Configure the updater public key and signing private key before building.'
+          }
+          $overlay = @{
+            bundle = @{ createUpdaterArtifacts = $true }
+            plugins = @{ updater = @{
+              pubkey = $env:LABHUB_TV_UPDATER_PUBLIC_KEY
+              endpoints = @('https://github.com/vihisantos/LabHub/releases/latest/download/latest.json')
+              windows = @{ installMode = 'passive' }
+            }}
+          }
+          $overlay | ConvertTo-Json -Depth 10 | Set-Content -Path updater-build.json -Encoding utf8
+      - name: Build signed NSIS installer
+        run: npx tauri build --bundles nsis --features signed-updater --config updater-build.json
+      - name: Prepare GitHub Release assets (no publication)
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a stable semantic version.' }
+          $source = "src-tauri/target/release/bundle/nsis/LabHub TV_${version}_x64-setup.exe"
+          if (!(Test-Path -LiteralPath $source) -or !(Test-Path -LiteralPath "$source.sig")) { throw 'Missing installer or signature' }
+          New-Item -ItemType Directory -Path signed-release -Force | Out-Null
+          $name = "LabHub-TV-${version}-x64-setup.exe"
+          Copy-Item -LiteralPath $source -Destination "signed-release/$name"
+          Copy-Item -LiteralPath "$source.sig" -Destination "signed-release/$name.sig"
+          $signature = (Get-Content -LiteralPath "$source.sig" -Raw).Trim()
+          if (!$signature) { throw 'Empty signature' }
+          $manifest = @{
+            version = $version
+            notes = "LabHub TV $version"
+            pub_date = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = @{ 'windows-x86_64' = @{
+              signature = $signature
+              url = "https://github.com/vihisantos/LabHub/releases/download/tv-v$version/$name"
+            }}
+          }
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content -Path signed-release/latest.json -Encoding utf8
+      - uses: actions/upload-artifact@v7
+        with:
+          name: labhub-tv-signed-release
+          path: signed-release/*
+          if-no-files-found: error
+          retention-days: 14

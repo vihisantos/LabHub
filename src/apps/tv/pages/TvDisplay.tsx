@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import './TvDisplay.css'
 import { isKiosk } from '../utils/kiosk'
 import { useProgramming } from '../contexts/ProgrammingContext'
+import { useSignedTvUpdate } from '../hooks/useSignedTvUpdate'
 import { toLocalUrl } from '../services/localProgramming'
 import type { ProgrammingQueueItem } from '../types'
 import { VideoPlayer } from '../components/VideoPlayer'
@@ -181,21 +182,25 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   const isVideoPhase = currentPhase?.type === 'video'
 
   const PHOTO_DISPLAY_MS = 15000
+  const installAtBoundary = useSignedTvUpdate(ready)
 
   // Separa o setState do efeito colateral (markCurrentCompleted)
   // para seguir o padrão correto do React — sem chamar funções externas
   // dentro de callbacks de setState.
   const advancePhase = useCallback(function() {
-    setPhaseIdx(function(i) {
-      const next = i + 1
-      if (next >= phaseSequence.length) {
-        // Ciclo completo: sinaliza via contador separado e volta ao índice 0
-        setCycleCompleted(function(c) { return c + 1 })
-        return 0
-      }
-      return next
-    })
-  }, [phaseSequence.length])
+    const proceed = () => {
+      setPhaseIdx(function(i) {
+        const next = i + 1
+        if (next >= phaseSequence.length) {
+          setCycleCompleted(function(c) { return c + 1 })
+          return 0
+        }
+        return next
+      })
+    }
+    if (phaseIdx + 1 >= phaseSequence.length && installAtBoundary(proceed)) return
+    proceed()
+  }, [phaseSequence.length, phaseIdx, installAtBoundary])
 
   // Reage ao fim de um ciclo: avança a fila de programação
   useEffect(function() {
