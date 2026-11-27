@@ -154,6 +154,8 @@ pub struct ProgrammingState {
     pub completed_fixed_ids: Vec<String>,
     #[serde(default)]
     pub academic_since_last_informativo: u32,
+    #[serde(default)]
+    pub last_video_played_at: std::collections::HashMap<String, u64>,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

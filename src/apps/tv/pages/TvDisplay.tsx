@@ -116,6 +116,11 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   // Gerar a sequência de fases incluindo vinhetas e slides especiais
   const phaseSequence = useMemo<Phase[]>(function() {
     const seq: Phase[] = []
+    // Todos os vídeos acadêmicos ainda em cooldown: espera com slides, sem
+    // tocar vinhetas avulsas ou consumir os contadores acadêmicos.
+    if (ready && queue.length > 0 && !currentItem) {
+      return [{ type: 'clock' }, { type: 'weather-enhanced' }]
+    }
 
     // Cadência dos slides especiais: todo conteúdo exibido conta (acadêmico,
     // fixo e informativo). `played` parte da base do ciclo para que a sequência
@@ -166,8 +171,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       seq.push({ type: 'gallery', galleryId: g.id })
     }
 
-    return seq.length > 0 ? seq : [{ type: 'video', item: null }]
-  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries])
+    return seq.length > 0 ? seq : ready ? [{ type: 'clock' }, { type: 'weather-enhanced' }] : [{ type: 'video', item: null }]
+  }, [fixedItem, informativoDue, nextInformativo, currentItem, cycleBaseContents, galleries, failedGalleries, ready, queue.length])
 
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)

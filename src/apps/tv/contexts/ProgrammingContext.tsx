@@ -45,6 +45,7 @@ interface TauriProgrammingState {
   completed_fixed_ids: string[]
   // Contador de quantos acadêmicos foram exibidos desde o último informativo
   academic_since_last_informativo: number
+  last_video_played_at?: Record<string, number>
 }
 
 function emptyTauriState(): TauriProgrammingState {
@@ -60,6 +61,7 @@ function emptyTauriState(): TauriProgrammingState {
     error_contents: [],
     completed_fixed_ids: [],
     academic_since_last_informativo: 0,
+    last_video_played_at: {},
   }
 }
 
@@ -107,6 +109,23 @@ interface ProgrammingContextValue {
 }
 
 export const LIBRARY_REFRESH_MS = 60_000
+export const VIDEO_COOLDOWN_MS = 10 * 60_000
+
+/** Só conteúdo acadêmico em vídeo. Vinhetas, fotos, comerciais e avisos
+ * preservam as regras próprias. O histórico usa o ID estável do arquivo. */
+export function nextEligiblePosition(
+  items: ProgrammingQueueItem[], start: number, history: Record<string, number>,
+  failed: string[], now = Date.now(),
+): number {
+  for (let i = start; i < items.length; i++) {
+    const item = items[i]
+    if (failed.includes(item.id)) continue
+    const last = history[item.id]
+    if (item.file_type !== 'video' || item.is_trailer || item.is_fixed ||
+      last === undefined || now - last >= VIDEO_COOLDOWN_MS) return i
+  }
+  return items.length
+}
 
 const ProgrammingCtx = createContext<ProgrammingContextValue | null>(null)
 
@@ -133,6 +152,8 @@ function tauriInvoke<T>(command: string, args?: Record<string, unknown>): Promis
 export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   const [queue, setQueue] = useState<ProgrammingQueueItem[]>([])
   const [position, setPosition] = useState(0)
+  const historyRef = useRef<Record<string, number>>({})
+  const [lastVideoPlayedAt, setLastVideoPlayedAt] = useState<Record<string, number>>({})
   const [academicCompleted, setAcademicCompleted] = useState(0)
   // Conta TODO conteúdo exibido (acadêmico, fixo, informativo). Diferente de
   // academicCompleted, que só conta acadêmicos e serve às regras 5:1 e 7:1.
@@ -236,6 +257,8 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         if (cancelled) return
         const saved = await loadPersistedState()
         if (cancelled) return
+        historyRef.current = saved?.last_video_played_at ?? {}
+        setLastVideoPlayedAt(historyRef.current)
 
         if (error) {
           // Pasta indisponível NÃO é biblioteca vazia: preserva o estado salvo
@@ -303,7 +326,10 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
           const restored = rebuildQueueFromIds(saved.pending_queue, restoredFailed)
           if (restored.length > 0) {
             setQueue(restored)
-            setPosition(Math.min(saved.position, Math.max(restored.length - 1, 0)))
+            const start = Math.min(saved.position, restored.length)
+            let eligible = nextEligiblePosition(restored, start, historyRef.current, restoredFailed)
+            if (eligible === restored.length) eligible = nextEligiblePosition(restored, 0, historyRef.current, restoredFailed)
+            setPosition(eligible)
             setAcademicCompleted(saved.academic_completed ?? 0)
             setAcademicSinceLastFixed(saved.academic_since_last_fixed ?? 0)
             setCompletedIds(saved.completed_ids ?? [])
@@ -321,7 +347,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         const newQueue = buildLocalQueue(discovery.courses, restoredFailed)
         const version = new Date().toISOString()
         setQueue(newQueue)
-        setPosition(0)
+        setPosition(nextEligiblePosition(newQueue, 0, historyRef.current, restoredFailed))
         setAcademicCompleted(0)
         setAcademicSinceLastFixed(0)
         setCompletedIds([])
@@ -333,6 +359,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
           next_fixed_id: null,
           library_version: version,
           error_contents: restoredFailed,
+          last_video_played_at: historyRef.current,
         })
       } catch (e) {
         console.error('[Programming] erro no carregamento local:', e)
@@ -440,15 +467,23 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       const additions = available.filter(item => !oldIds.has(item.id))
       if (after.length + additions.length > 0) {
         setQueue([...before, ...after, ...additions])
-        setPosition(before.length)
-        setCompletedIds(ids => ids.filter(id => byId.has(id)))
+        const merged = [...before, ...after, ...additions]
+        const eligible = nextEligiblePosition(merged, before.length, historyRef.current, failures)
+        if (eligible < merged.length) {
+          setPosition(eligible)
+          setCompletedIds(ids => ids.filter(id => byId.has(id)))
+        } else {
+          setQueue(available)
+          setPosition(nextEligiblePosition(available, 0, historyRef.current, failures))
+          setCompletedIds([])
+        }
       } else {
         const last = queue[position]?.id
         if (available.length > 1 && available[0].id === last) {
           available.push(available.shift()!)
         }
         setQueue(available)
-        setPosition(0)
+        setPosition(nextEligiblePosition(available, 0, historyRef.current, failures))
         setCompletedIds([])
       }
       return
@@ -458,7 +493,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       return
     }
 
-    const next = position + 1
+    const next = nextEligiblePosition(queue, position + 1, historyRef.current, failedIds)
     if (next < queue.length) {
       setPosition(next)
       return
@@ -469,7 +504,6 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     // nunca dispararem em bibliotecas menores que o intervalo (ex.: 1 vídeo →
     // comercial 5:1, informativo 7:1, relógio 4 e clima 8 jamais apareciam).
     setCompletedIds([])
-    setPosition(0)
 
     // Nova rodada com ordem diferente: sem isso a TV repetiria exatamente a
     // mesma sequência em todos os ciclos.
@@ -477,7 +511,6 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     // Remove definitivamente a mídia quebrada mesmo quando só um item resta.
     if (playable.length !== queue.length) {
       setQueue(playable)
-      if (position >= playable.length) setPosition(0)
     }
     if (playable.length > 1) {
       const lastPlayed = playable[playable.length - 1]
@@ -492,6 +525,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         }
       }
       setQueue(newOrder)
+      setPosition(nextEligiblePosition(newOrder, 0, historyRef.current, failedIds))
+    } else {
+      setPosition(nextEligiblePosition(playable, 0, historyRef.current, failedIds))
     }
   }, [queue, position, failedIds])
 
@@ -511,6 +547,12 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     }
     if (current) {
       if (!current.is_fixed) {
+        if (current.file_type === 'video' && !current.is_trailer) {
+          const now = Date.now()
+          const recent = Object.fromEntries(Object.entries(historyRef.current).filter(([, time]) => now - time < VIDEO_COOLDOWN_MS))
+          historyRef.current = { ...recent, [current.id]: now }
+          setLastVideoPlayedAt(historyRef.current)
+        }
         setCompletedIds(function(prev) { return [...prev, current.id] })
         setAcademicCompleted(function(prev) { return prev + 1 })
         // Incrementa contador de informativos a cada conteúdo acadêmico
@@ -583,8 +625,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       error_contents: failedIds,
       completed_fixed_ids: completedFixedIds,
       academic_since_last_informativo: academicSinceLastInformativo,
+      last_video_played_at: lastVideoPlayedAt,
     })
-  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo])
+  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo, lastVideoPlayedAt])
 
   const value: ProgrammingContextValue = {
     queue,

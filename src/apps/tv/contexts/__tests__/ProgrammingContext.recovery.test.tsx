@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LIBRARY_REFRESH_MS, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
+import { LIBRARY_REFRESH_MS, VIDEO_COOLDOWN_MS, nextEligiblePosition, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
 import { buildLocalQueue, localId, optimizeCourseDistribution, type LocalCourse } from '../../services/localProgramming'
 
 interface SavedState {
@@ -228,5 +228,40 @@ describe('descoberta periódica da biblioteca', () => {
     expect(api().academicCompleted).toBe(1)
     expect(api().currentItem?.file_path).toBe(photo)
     expect(api().queue.some(i => i.id === removed.id)).toBe(false)
+  })
+})
+
+
+describe('cooldown individual de vídeo', () => {
+  it('bloqueia a repetição por dez minutos e retoma sem resetar o histórico', async () => {
+    vi.useFakeTimers()
+    renderProvider()
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+    expect(api().ready).toBe(true)
+    const first = api().currentItem!
+    act(() => api().markCurrentCompleted())
+    expect(api().currentItem?.id).not.toBe(first.id)
+    act(() => api().markCurrentCompleted())
+    expect(api().currentItem).toBeNull()
+    expect(api().academicCompleted).toBe(2)
+    const items = api().queue
+    const now = Date.now()
+    const history = Object.fromEntries(items.map(item => [item.id, now]))
+    expect(nextEligiblePosition(items, 0, history, [], now + VIDEO_COOLDOWN_MS - 1)).toBe(items.length)
+    expect(nextEligiblePosition(items, 0, history, [], now + VIDEO_COOLDOWN_MS)).toBe(0)
+    await act(async () => { await vi.advanceTimersByTimeAsync(VIDEO_COOLDOWN_MS) })
+    act(() => api().advance())
+    expect(api().currentItem).not.toBeNull()
+    expect(api().academicCompleted).toBe(2)
+  })
+  it('não bloqueia fotos, vinhetas nem fixos', async () => {
+    renderProvider()
+    await waitFor(() => expect(api().ready).toBe(true))
+    const item = api().currentItem!
+    const now = Date.now()
+    const history = { [item.id]: now }
+    expect(nextEligiblePosition([{...item, file_type: 'image'}], 0, history, [], now)).toBe(0)
+    expect(nextEligiblePosition([{...item, is_trailer: true}], 0, history, [], now)).toBe(0)
+    expect(nextEligiblePosition([{...item, is_fixed: true}], 0, history, [], now)).toBe(0)
   })
 })
