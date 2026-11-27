@@ -178,6 +178,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
   const [cycleCompleted, setCycleCompleted] = useState(0)
+  const informativoCompletedRef = useRef(false)
   const currentPhase = phaseSequence[phaseIdx]
   const isVideoPhase = currentPhase?.type === 'video'
 
@@ -206,6 +207,12 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   useEffect(function() {
     if (cycleCompleted === 0) return
     setCycleBaseContents(contentShown)
+    // Só um informativo concluído reinicia seu próprio contador. Aplique
+    // no limite da sequência para não deslocar phaseIdx nem pular vinhetas.
+    if (informativoCompletedRef.current) {
+      informativoCompletedRef.current = false
+      resetInformativoCounter()
+    }
     markCurrentCompleted()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleCompleted])
@@ -227,6 +234,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   }, [currentPhase, phaseIdx, cycleCompleted, markContentShown])
 
   const handleContentCompleted = useCallback(function(failed?: boolean) {
+    if (!failed && currentPhase?.type === 'informativo') informativoCompletedRef.current = true
     if (failed) {
       const failedId = currentPhase?.type === 'fixed' || currentPhase?.type === 'informativo'
         ? currentPhase.item.id
@@ -309,15 +317,15 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   useEffect(function() {
     if (currentPhaseDurationMs === null) return
-    // Informativo em imagem termina pelo timer (não há onEnd): zera o contador
-    // aqui também, senão ele continuaria "devido" e voltaria em todo ciclo.
+    // Informativo em imagem termina pelo timer. O reset ocorre só no limite
+    // da sequência, assim como no fim de um informativo em vídeo.
     const isInformativo = currentPhase?.type === 'informativo'
     const timer = setTimeout(function() {
-      if (isInformativo) resetInformativoCounter()
+      if (isInformativo) informativoCompletedRef.current = true
       advancePhase()
     }, currentPhaseDurationMs)
     return function() { clearTimeout(timer) }
-  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx, resetInformativoCounter])
+  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx])
 
   // Sequência mudou: preserva o índice atual. Se ela encolheu a ponto de não
   // haver mais fase nele (ex.: galeria removida por falha de carregamento),
@@ -417,7 +425,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
             source="local"
             contentType={currentPhase.item.file_type}
             isPlaying={true}
-            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+            onEnd={handleContentCompleted}
           />
         </div>
       )}
@@ -438,7 +446,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
             source="local"
             contentType={currentPhase.item.file_type}
             isPlaying={true}
-            onEnd={function() { resetInformativoCounter(); handleContentCompleted() }}
+            onEnd={handleContentCompleted}
           />
         </div>
       )}

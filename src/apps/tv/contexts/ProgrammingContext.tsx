@@ -13,7 +13,7 @@
  *     os contadores acumulados são preservados para as cadências periódicas.
  */
 
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
   listLocalMediaWithStatus,
@@ -600,7 +600,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
   const currentItem = queue[position] ?? null
   const isFixedDue = academicSinceLastFixed >= 4 && fixedContent.length > 0
-  const nextInformativo = pickNextInformativo(completedIds)
+  // Mantém a escolha durante a sequência; re-render do relógio ou do contador
+  // não pode substituir a mídia no meio da reprodução.
+  const nextInformativo = useMemo(() => pickNextInformativo(completedIds), [pickNextInformativo, completedIds])
   // Informativo determinístico: aparece a cada 7 conteúdos acadêmicos
   const INFORMATIVO_INTERVAL = 7
   const informativoDue = (

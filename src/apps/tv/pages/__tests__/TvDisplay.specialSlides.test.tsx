@@ -93,8 +93,8 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 // O player expõe um botão que encerra a fase, simulando o fim do vídeo.
 vi.mock('../../components/VideoPlayer', () => ({
-  VideoPlayer: ({ onEnd }: { onEnd?: () => void }) => (
-    <button data-testid="video-player" onClick={() => onEnd?.()}>
+  VideoPlayer: ({ onEnd, url }: { onEnd?: () => void; url: string }) => (
+    <button data-testid="video-player" data-url={url} onClick={() => onEnd?.()}>
       VideoPlayer
     </button>
   ),
@@ -296,6 +296,45 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     endPhase()
     expect(screen.getByTestId('clock-slide')).toBeInTheDocument()
     expect(screen.queryByTestId('video-player')).toBeNull()
+  })
+
+  it('fixo em vídeo nunca reinicia o contador de informativos', () => {
+    programming.fixedContent = [FIXED]
+    programming.nextFixedId = FIXED.id
+    programming.isFixedDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', FIXED.file_path)
+    endPhase()
+    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    endPhase()
+    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+  })
+
+  it('informativo em vídeo reinicia o próprio contador apenas após a sequência', () => {
+    programming.nextInformativo = {...INFORMATIVO, file_type: 'video', file_path: '/media/informativos/aviso.mp4'}
+    programming.informativoDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', '/media/informativos/aviso.mp4')
+    endPhase()
+    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    endPhase()
+    expect(programming.resetInformativoCounter).toHaveBeenCalledTimes(1)
+  })
+
+  it('informativo em imagem aguarda 15 segundos e não pula o conteúdo acadêmico', () => {
+    vi.useFakeTimers()
+    programming.nextInformativo = INFORMATIVO as unknown as Record<string, unknown>
+    programming.informativoDue = true
+    renderDisplay()
+    act(() => { vi.advanceTimersByTime(14999) })
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', INFORMATIVO.file_path)
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    endPhase()
+    expect(programming.resetInformativoCounter).toHaveBeenCalledTimes(1)
   })
 
   it('registra cada conteúdo exibido uma única vez', () => {
