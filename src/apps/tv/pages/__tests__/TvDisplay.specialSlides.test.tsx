@@ -45,7 +45,9 @@ const { programming, academicItem } = vi.hoisted(() => {
       ready: true,
       discoveryError: null,
       markCurrentCompleted: vi.fn(),
+      reportMediaFailure: vi.fn(),
       resetInformativoCounter: vi.fn(),
+      failedIds: [] as string[],
     },
   }
 })
@@ -93,8 +95,13 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 // O player expõe um botão que encerra a fase, simulando o fim do vídeo.
 vi.mock('../../components/VideoPlayer', () => ({
-  VideoPlayer: ({ onEnd, url }: { onEnd?: () => void; url: string }) => (
-    <button data-testid="video-player" data-url={url} onClick={() => onEnd?.()}>
+  VideoPlayer: ({ onEnd, url, contentType }: { onEnd?: () => void; url: string; contentType?: string }) => (
+    <button
+      data-testid="video-player"
+      data-url={url}
+      data-content-type={contentType}
+      onClick={() => onEnd?.()}
+    >
       VideoPlayer
     </button>
   ),
@@ -328,6 +335,7 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     programming.nextInformativo = INFORMATIVO as unknown as Record<string, unknown>
     programming.informativoDue = true
     renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
     act(() => { vi.advanceTimersByTime(14999) })
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', INFORMATIVO.file_path)
     act(() => { vi.advanceTimersByTime(1) })
@@ -335,6 +343,37 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
     endPhase()
     expect(programming.resetInformativoCounter).toHaveBeenCalledTimes(1)
+  })
+
+  it('imagem acadêmica usa o player de imagem e termina após 15 segundos', () => {
+    vi.useFakeTimers()
+    programming.currentItem = {
+      ...academicItem,
+      file_type: 'image',
+      file_path: '/media/cursos/direito/foto.jpg',
+      duration_seconds: 15,
+    }
+    renderDisplay()
+    const player = screen.getByTestId('video-player')
+    expect(player).toHaveAttribute('data-content-type', 'image')
+    expect(player).toHaveAttribute('data-url', '/media/cursos/direito/foto.jpg')
+    act(() => { vi.advanceTimersByTime(14_999) })
+    expect(programming.markCurrentCompleted).not.toHaveBeenCalled()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(programming.markCurrentCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('fixo em imagem usa o player de imagem e não atrasa o conteúdo acadêmico', () => {
+    vi.useFakeTimers()
+    const banner: ProgrammingQueueItem = { ...FIXED, file_type: 'image', file_path: '/media/fixos/banner.png' }
+    programming.fixedContent = [banner]
+    programming.nextFixedId = banner.id
+    programming.isFixedDue = true
+    renderDisplay()
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
+    act(() => { vi.advanceTimersByTime(15_000) })
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
+    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
   })
 
   it('registra cada conteúdo exibido uma única vez', () => {

@@ -61,6 +61,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     markCurrentCompleted,
     reportMediaFailure,
     resetInformativoCounter,
+    failedIds = [],
   } = programming
 
   const [failedGalleries, setFailedGalleries] = useState(new Set<string>())
@@ -106,8 +107,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   const fixedItem = useMemo(function() {
     if (!isFixedDue || !nextFixedId) return null
-    return fixedContent.find(function(f) { return f.id === nextFixedId }) ?? null
-  }, [isFixedDue, nextFixedId, fixedContent])
+    return fixedContent.find(function(f) { return f.id === nextFixedId && !failedIds.includes(f.id) }) ?? null
+  }, [isFixedDue, nextFixedId, fixedContent, failedIds])
 
   // Quantos conteúdos já tinham sido exibidos quando o ciclo atual começou.
   // Serve de base para a cadência dos slides especiais dentro do ciclo.
@@ -178,7 +179,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
   const [cycleCompleted, setCycleCompleted] = useState(0)
-  const informativoCompletedRef = useRef(false)
+  /** ID do informativo concluído na sequência atual (null quando não houve). */
+  const informativoCompletedRef = useRef<string | null>(null)
   const currentPhase = phaseSequence[phaseIdx]
   const isVideoPhase = currentPhase?.type === 'video'
 
@@ -210,8 +212,9 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     // Só um informativo concluído reinicia seu próprio contador. Aplique
     // no limite da sequência para não deslocar phaseIdx nem pular vinhetas.
     if (informativoCompletedRef.current) {
-      informativoCompletedRef.current = false
-      resetInformativoCounter()
+      const informativoId = informativoCompletedRef.current
+      informativoCompletedRef.current = null
+      resetInformativoCounter(informativoId)
     }
     markCurrentCompleted()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,7 +237,9 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   }, [currentPhase, phaseIdx, cycleCompleted, markContentShown])
 
   const handleContentCompleted = useCallback(function(failed?: boolean) {
-    if (!failed && currentPhase?.type === 'informativo') informativoCompletedRef.current = true
+    if (!failed && currentPhase?.type === 'informativo') {
+      informativoCompletedRef.current = currentPhase.item.id
+    }
     if (failed) {
       const failedId = currentPhase?.type === 'fixed' || currentPhase?.type === 'informativo'
         ? currentPhase.item.id
@@ -321,7 +326,9 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     // da sequência, assim como no fim de um informativo em vídeo.
     const isInformativo = currentPhase?.type === 'informativo'
     const timer = setTimeout(function() {
-      if (isInformativo) informativoCompletedRef.current = true
+      if (isInformativo && currentPhase?.type === 'informativo') {
+        informativoCompletedRef.current = currentPhase.item.id
+      }
       advancePhase()
     }, currentPhaseDurationMs)
     return function() { clearTimeout(timer) }

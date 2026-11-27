@@ -154,6 +154,9 @@ pub struct ProgrammingState {
     pub completed_fixed_ids: Vec<String>,
     #[serde(default)]
     pub academic_since_last_informativo: u32,
+    /// Rodada de informativos já exibidos (evita repetir o mesmo aviso).
+    #[serde(default)]
+    pub completed_informativo_ids: Vec<String>,
     #[serde(default)]
     pub last_video_played_at: std::collections::HashMap<String, u64>,
 }

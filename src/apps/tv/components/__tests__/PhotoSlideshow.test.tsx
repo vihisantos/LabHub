@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { PhotoSlideshow } from '../PhotoSlideshow'
 import type { TvGalleryPhoto } from '../../types'
 
@@ -30,5 +30,24 @@ describe('PhotoSlideshow', () => {
     const img = container.querySelector('img') as HTMLImageElement
     fireEvent.error(img!)
     expect(onAllFailed).toHaveBeenCalled()
+  })
+
+  it('mantém cada foto por 15 segundos antes do crossfade', () => {
+    vi.useFakeTimers()
+    try {
+      const photos: TvGalleryPhoto[] = [
+        { id: '1', gallery_id: 'g', image_url: 'asset://foto-1.jpg', sort_order: 0, created_at: '' },
+        { id: '2', gallery_id: 'g', image_url: 'asset://foto-2.jpg', sort_order: 1, created_at: '' },
+      ]
+      const { container } = render(<PhotoSlideshow photos={photos} title="Galeria" />)
+      const src = () => (container.querySelector('img') as HTMLImageElement).getAttribute('src')
+      expect(src()).toBe('asset://foto-1.jpg')
+      act(() => { vi.advanceTimersByTime(14_999) })
+      expect(src()).toBe('asset://foto-1.jpg')
+      act(() => { vi.advanceTimersByTime(1_001) })
+      expect(src()).toBe('asset://foto-2.jpg')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

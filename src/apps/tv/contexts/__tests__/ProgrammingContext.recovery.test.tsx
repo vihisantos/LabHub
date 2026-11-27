@@ -15,6 +15,8 @@ interface SavedState {
   error_contents: string[]
   completed_fixed_ids: string[]
   academic_since_last_informativo: number
+  completed_informativo_ids?: string[]
+  last_video_played_at?: Record<string, number>
 }
 
 function emptyState(): SavedState {
@@ -44,6 +46,21 @@ function rawFile(path: string, name: string) {
     relativePath: path.slice(path.indexOf('Cursos')),
     parentFolder: path.includes('Direito') ? 'Direito' : 'Biomedicina',
     file_type: 'video',
+    isAvailable: true,
+  }
+}
+
+const INFO1 = 'G:\\LabHub-TV\\Informativos\\aviso1.png'
+const INFO2 = 'G:\\LabHub-TV\\Informativos\\aviso2.jpg'
+
+function infoFile(path: string, name: string) {
+  return {
+    name,
+    size: 2048,
+    path,
+    relativePath: path.slice(path.indexOf('Informativos')),
+    parentFolder: 'Informativos',
+    file_type: 'image',
     isAvailable: true,
   }
 }
@@ -263,5 +280,53 @@ describe('cooldown individual de vídeo', () => {
     expect(nextEligiblePosition([{...item, file_type: 'image'}], 0, history, [], now)).toBe(0)
     expect(nextEligiblePosition([{...item, is_trailer: true}], 0, history, [], now)).toBe(0)
     expect(nextEligiblePosition([{...item, is_fixed: true}], 0, history, [], now)).toBe(0)
+  })
+})
+
+describe('informativos — cadência e rodada', () => {
+  async function renderWithInformativos(overrides: Partial<SavedState> = {}) {
+    rig.files = [
+      rawFile(A, 'A.mp4'), rawFile(B, 'B.mp4'),
+      infoFile(INFO1, 'aviso1.png'), infoFile(INFO2, 'aviso2.jpg'),
+    ]
+    rig.savedState = {
+      ...emptyState(),
+      academic_since_last_informativo: 7,
+      library_version: 'v1',
+      pending_queue: [localId(A), localId(B)],
+      ...overrides,
+    }
+    renderProvider()
+    await waitFor(() => expect(api().ready).toBe(true))
+  }
+
+  it('não repete o mesmo aviso na rodada e reinicia a rodada ao esgotá-la', async () => {
+    await renderWithInformativos()
+    expect(api().informativoDue).toBe(true)
+    const first = api().nextInformativo!.id
+
+    act(() => api().resetInformativoCounter(first))
+    expect(api().informativoDue).toBe(false)
+    expect(api().nextInformativo!.id).not.toBe(first)
+    expect(rig.savedState?.completed_informativo_ids).toContain(first)
+
+    const second = api().nextInformativo!.id
+    act(() => api().resetInformativoCounter(second))
+    expect(api().nextInformativo).not.toBeNull()
+    expect(rig.savedState?.completed_informativo_ids).toEqual([])
+  })
+
+  it('retoma a rodada persistida e nunca escolhe mídia que falhou', async () => {
+    await renderWithInformativos({
+      completed_informativo_ids: [localId(INFO1)],
+      error_contents: [localId(INFO2)],
+    })
+    expect(api().informativoDue).toBe(true)
+    expect(api().nextInformativo).toBeNull()
+  })
+
+  it('exibe o aviso restante quando apenas um falhou', async () => {
+    await renderWithInformativos({ error_contents: [localId(INFO1)] })
+    expect(api().nextInformativo?.id).toBe(localId(INFO2))
   })
 })

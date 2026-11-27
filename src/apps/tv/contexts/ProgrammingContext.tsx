@@ -7,10 +7,13 @@
  * (JSON durável em %APPDATA%/LabHub TV/programming-state.json).
  *
  * Regras de programação preservadas do modelo original:
- *   - Conteúdo fixo toca a cada 5 itens acadêmicos (academicSinceLastFixed % 5 === 4).
- *   - Informativo tem 15% de chance por avanço (enquanto houver fila).
+ *   - Conteúdo fixo toca a cada 5 itens acadêmicos (academicSinceLastFixed >= 4).
+ *   - Informativo toca a cada 7 itens acadêmicos (academicSinceLastInformativo >= 7),
+ *     sem repetir o mesmo aviso dentro da rodada.
  *   - Fim do ciclo → itens voltam a ficar pendentes e a ordem é reembaralhada;
  *     os contadores acumulados são preservados para as cadências periódicas.
+ *   - Vídeos acadêmicos têm cooldown individual de 10 minutos; fotos, vinhetas,
+ *     fixos e informativos são isentos (cada um segue sua própria regra).
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
@@ -45,6 +48,8 @@ interface TauriProgrammingState {
   completed_fixed_ids: string[]
   // Contador de quantos acadêmicos foram exibidos desde o último informativo
   academic_since_last_informativo: number
+  /** Rodada de informativos já exibidos (evita repetir o mesmo aviso). */
+  completed_informativo_ids: string[]
   last_video_played_at?: Record<string, number>
 }
 
@@ -61,6 +66,7 @@ function emptyTauriState(): TauriProgrammingState {
     error_contents: [],
     completed_fixed_ids: [],
     academic_since_last_informativo: 0,
+    completed_informativo_ids: [],
     last_video_played_at: {},
   }
 }
@@ -85,8 +91,10 @@ interface ProgrammingContextValue {
   markCurrentCompleted: () => void
   /** Registra mídia inválida para não repeti-la na próxima rodada. */
   reportMediaFailure: (id: string) => void
-  /** Chame após exibir um informativo para zerar o contador e evitar repetição imediata. */
-  resetInformativoCounter: () => void
+  /** Encerra um informativo: zera o contador e registra o ID na rodada atual. */
+  resetInformativoCounter: (informativoId?: string) => void
+  /** IDs de mídia que falharam ao carregar (fixos/informativos também). */
+  failedIds: string[]
   getQueueStats: () => { total: number; completed: number; pending: number }
   /** Conteúdo fixo (Fixos/) — exibido quando isFixedDue. */
   fixedContent: ProgrammingQueueItem[]
@@ -111,20 +119,41 @@ interface ProgrammingContextValue {
 export const LIBRARY_REFRESH_MS = 60_000
 export const VIDEO_COOLDOWN_MS = 10 * 60_000
 
-/** Só conteúdo acadêmico em vídeo. Vinhetas, fotos, comerciais e avisos
- * preservam as regras próprias. O histórico usa o ID estável do arquivo. */
+function isCoolingDown(
+  item: ProgrammingQueueItem, history: Record<string, number>, now: number,
+): boolean {
+  // Vinhetas, fotos, comerciais e avisos são isentos — cada um tem regra própria.
+  if (item.file_type !== 'video' || item.is_trailer || item.is_fixed) return false
+  const last = history[item.id]
+  return last !== undefined && now - last < VIDEO_COOLDOWN_MS
+}
+
+/**
+ * Escolhe o próximo item elegível da fila.
+ *
+ * - prioriza conteúdo disponível há mais tempo (ou nunca exibido);
+ * - evita repetir o curso do item anterior quando há alternativa;
+ * - nunca aplica cooldown a imagens, vinhetas ou fixos;
+ * - retorna `items.length` quando tudo está bloqueado (o player então usa
+ *   relógio/clima sem consumir contadores).
+ */
 export function nextEligiblePosition(
   items: ProgrammingQueueItem[], start: number, history: Record<string, number>,
-  failed: string[], now = Date.now(),
+  failed: string[], now = Date.now(), avoidCourseId?: string,
 ): number {
+  const eligible: Array<{ index: number; last: number }> = []
   for (let i = start; i < items.length; i++) {
     const item = items[i]
     if (failed.includes(item.id)) continue
-    const last = history[item.id]
-    if (item.file_type !== 'video' || item.is_trailer || item.is_fixed ||
-      last === undefined || now - last >= VIDEO_COOLDOWN_MS) return i
+    if (isCoolingDown(item, history, now)) continue
+    eligible.push({ index: i, last: history[item.id] ?? -Infinity })
   }
-  return items.length
+  if (eligible.length === 0) return items.length
+
+  const fresh = eligible.filter(({ index }) => items[index].course_id !== avoidCourseId)
+  const pool = fresh.length > 0 ? fresh : eligible
+  pool.sort((a, b) => a.last - b.last || a.index - b.index)
+  return pool[0].index
 }
 
 const ProgrammingCtx = createContext<ProgrammingContextValue | null>(null)
@@ -165,6 +194,8 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   const [libraryVersion, setLibraryVersion] = useState<string | null>(null)
   // Contador para informativos determinísticos: a cada 7 acadêmicos, exibe 1 informativo
   const [academicSinceLastInformativo, setAcademicSinceLastInformativo] = useState(0)
+  /** Rodada de informativos já exibidos, persistida para não repetir o mesmo aviso. */
+  const [completedInformativoIds, setCompletedInformativoIds] = useState<string[]>([])
   /** IDs de mídia que falharam ao carregar — persistidos em `error_contents`. */
   const [failedIds, setFailedIds] = useState<string[]>([])
   /** Falha transitória de leitura da pasta: impede sobrescrever o estado salvo. */
@@ -215,12 +246,15 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     return available[Math.floor(Math.random() * available.length)].id
   }, [])
 
-  /** Escolhe o próximo informativo (aleatório entre disponíveis no ciclo). */
-  const pickNextInformativo = useCallback(function(completed: string[]): TvInformativo | null {
-    const available = informativos.filter(function(i) { return !completed.includes(i.id) })
+  /** Escolhe o próximo informativo (aleatório entre os ainda não exibidos na rodada). */
+  const pickNextInformativo = useCallback(function(
+    availableInformativos: TvInformativo[],
+    completed: string[],
+  ): TvInformativo | null {
+    const available = availableInformativos.filter(function(i) { return !completed.includes(i.id) })
     if (available.length === 0) return null
     return available[Math.floor(Math.random() * available.length)]
-  }, [informativos])
+  }, [])
 
   /** Reconstrói a fila a partir de pending_queue persistido + descoberta atual. */
   const rebuildQueueFromIds = useCallback(function(
@@ -275,6 +309,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
             setLibraryVersion(saved.library_version)
             setCompletedFixedIds(saved.completed_fixed_ids ?? [])
             setAcademicSinceLastInformativo(saved.academic_since_last_informativo ?? 0)
+            setCompletedInformativoIds(saved.completed_informativo_ids ?? [])
           }
           // Sem descoberta não há itens para reconstruir, mas o player precisa
           // sair do "carregando": a tela de manutenção orienta o operador.
@@ -320,6 +355,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
         const restoredFailed = saved?.error_contents ?? []
         setFailedIds(restoredFailed)
+        const informativoIds = new Set(discovery.informativos.map(i => i.id))
+        const restoredInformativoIds = (saved?.completed_informativo_ids ?? [])
+          .filter(id => informativoIds.has(id))
 
         if (saved && queueValid && saved.library_version) {
           // Retomada: restaura contadores e reconstrói a fila pelos IDs.
@@ -338,6 +376,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
             // Novos campos com fallback para estado vazio (compatibilidade retroativa)
             setCompletedFixedIds(saved.completed_fixed_ids ?? [])
             setAcademicSinceLastInformativo(saved.academic_since_last_informativo ?? 0)
+            setCompletedInformativoIds(restoredInformativoIds)
             setReady(true)
             return
           }
@@ -351,12 +390,15 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         setAcademicCompleted(0)
         setAcademicSinceLastFixed(0)
         setCompletedIds([])
-        setNextFixedId(pickNextFixedId(discovery.fixed.map(toFixedItem), []))
+        setAcademicSinceLastInformativo(0)
+        setCompletedInformativoIds([])
+        const firstFixedId = pickNextFixedId(discovery.fixed.map(toFixedItem), [])
+        setNextFixedId(firstFixedId)
         setLibraryVersion(version)
         persistState({
           ...emptyTauriState(),
           pending_queue: newQueue.map(function(i) { return i.id }),
-          next_fixed_id: null,
+          next_fixed_id: firstFixedId,
           library_version: version,
           error_contents: restoredFailed,
           last_video_played_at: historyRef.current,
@@ -453,6 +495,8 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       }))
       setFixedContent(nextFixed)
       setCompletedFixedIds(ids => ids.filter(id => nextFixed.some(f => f.id === id) && !changed.has(id)))
+      const informativoIds = new Set(discovery.informativos.map(i => i.id))
+      setCompletedInformativoIds(ids => ids.filter(id => informativoIds.has(id) && !changed.has(id)))
       setInformativos(discovery.informativos)
       setGalleries(discovery.galleries)
       setPhotosMap(discovery.photosMap)
@@ -465,10 +509,11 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       const before = queue.slice(0, position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
       const after = queue.slice(position + 1).flatMap(item => byId.has(item.id) ? [byId.get(item.id)!] : [])
       const additions = available.filter(item => !oldIds.has(item.id))
+      const lastCourseId = before[before.length - 1]?.course_id
       if (after.length + additions.length > 0) {
         setQueue([...before, ...after, ...additions])
         const merged = [...before, ...after, ...additions]
-        const eligible = nextEligiblePosition(merged, before.length, historyRef.current, failures)
+        const eligible = nextEligiblePosition(merged, before.length, historyRef.current, failures, Date.now(), lastCourseId)
         if (eligible < merged.length) {
           setPosition(eligible)
           setCompletedIds(ids => ids.filter(id => byId.has(id)))
@@ -483,7 +528,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
           available.push(available.shift()!)
         }
         setQueue(available)
-        setPosition(nextEligiblePosition(available, 0, historyRef.current, failures))
+        setPosition(nextEligiblePosition(available, 0, historyRef.current, failures, Date.now(), lastCourseId))
         setCompletedIds([])
       }
       return
@@ -493,7 +538,9 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       return
     }
 
-    const next = nextEligiblePosition(queue, position + 1, historyRef.current, failedIds)
+    const next = nextEligiblePosition(
+      queue, position + 1, historyRef.current, failedIds, Date.now(), queue[position]?.course_id,
+    )
     if (next < queue.length) {
       setPosition(next)
       return
@@ -531,21 +578,30 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     }
   }, [queue, position, failedIds])
 
-  // Repara a seleção de fixos se uma atualização remover o próximo comercial.
+  // Repara a seleção de fixos se uma atualização remover o próximo comercial
+  // ou se ele tiver falhado ao carregar (mídia inválida não entra na rodada).
+  const playableFixed = useMemo(
+    function() { return fixedContent.filter(function(f) { return !failedIds.includes(f.id) }) },
+    [fixedContent, failedIds],
+  )
+
   useEffect(function() {
-    if (nextFixedId && fixedContent.some(f => f.id === nextFixedId)) return
-    const next = pickNextFixedId(fixedContent, completedFixedIds)
+    if (nextFixedId && playableFixed.some(f => f.id === nextFixedId)) return
+    const next = pickNextFixedId(playableFixed, completedFixedIds)
     if (next !== nextFixedId) setNextFixedId(next)
-  }, [fixedContent, nextFixedId, completedFixedIds, pickNextFixedId])
+  }, [playableFixed, nextFixedId, completedFixedIds, pickNextFixedId])
 
   const markCurrentCompleted = useCallback(function() {
     const current = queue[position]
+    // Durante o fallback de cooldown não há conteúdo acadêmico em andamento:
+    // relógio/clima não podem consumir contadores nem avançar a fila.
+    if (!current) return
     // Falha de mídia não conta como conteúdo assistido nem entra em `completedIds`.
-    if (current && failedIds.includes(current.id)) {
+    if (failedIds.includes(current.id)) {
       advance()
       return
     }
-    if (current) {
+    {
       if (!current.is_fixed) {
         if (current.file_type === 'video' && !current.is_trailer) {
           const now = Date.now()
@@ -559,19 +615,19 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         setAcademicSinceLastInformativo(function(prev) { return prev + 1 })
 
         // Regra 5:1 de Fixos (1 comercial/institucional a cada 5 conteúdos acadêmicos concluídos)
-        if (academicSinceLastFixed >= 4 && fixedContent.length > 0) {
+        if (academicSinceLastFixed >= 4 && playableFixed.length > 0) {
           // Completou o ciclo de 5 acadêmicos e o comercial foi exibido:
           setAcademicSinceLastFixed(0)
 
           if (nextFixedId) {
             setCompletedFixedIds(function(prev) {
               const next = prev.includes(nextFixedId) ? prev : [...prev, nextFixedId]
-              if (next.length >= fixedContent.length) {
+              if (next.length >= playableFixed.length) {
                 // Rodada completa de todos os fixos da pasta: reinicia a rodada
-                setNextFixedId(pickNextFixedId(fixedContent, []))
+                setNextFixedId(pickNextFixedId(playableFixed, []))
                 return []
               }
-              setNextFixedId(pickNextFixedId(fixedContent, next))
+              setNextFixedId(pickNextFixedId(playableFixed, next))
               return next
             })
           }
@@ -581,12 +637,20 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       }
     }
     advance()
-  }, [queue, position, advance, failedIds, academicSinceLastFixed, fixedContent, nextFixedId, pickNextFixedId])
+  }, [queue, position, advance, failedIds, academicSinceLastFixed, playableFixed, nextFixedId, pickNextFixedId])
 
-  // Chamado pelo TvDisplay ao exibir um informativo para zerar o contador
-  const resetInformativoCounter = useCallback(function() {
+  // Chamado pelo TvDisplay ao concluir um informativo: zera o contador e
+  // registra o ID na rodada, para não repetir o mesmo aviso.
+  const resetInformativoCounter = useCallback(function(informativoId?: string) {
     setAcademicSinceLastInformativo(0)
-  }, [])
+    if (!informativoId) return
+    setCompletedInformativoIds(function(prev) {
+      const next = prev.includes(informativoId) ? prev : [...prev, informativoId]
+      const available = informativos.filter(function(i) { return !failedIds.includes(i.id) })
+      // Rodada completa: reinicia para que os avisos voltem a ser elegíveis.
+      return available.every(function(i) { return next.includes(i.id) }) ? [] : next
+    })
+  }, [informativos, failedIds])
 
   const getQueueStats = useCallback(function() {
     return {
@@ -599,14 +663,24 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   /* ── Derivados ────────────────────────────────────────────────────────── */
 
   const currentItem = queue[position] ?? null
-  const isFixedDue = academicSinceLastFixed >= 4 && fixedContent.length > 0
+  const isFixedDue = academicSinceLastFixed >= 4 && playableFixed.length > 0
   // Mantém a escolha durante a sequência; re-render do relógio ou do contador
-  // não pode substituir a mídia no meio da reprodução.
-  const nextInformativo = useMemo(() => pickNextInformativo(completedIds), [pickNextInformativo, completedIds])
+  // não pode substituir a mídia no meio da reprodução. Mídia que falhou é
+  // excluída para não travar a cadência num aviso inválido.
+  const playableInformativos = useMemo(
+    function() {
+      return informativos.filter(function(i) { return !failedIds.includes(i.id) })
+    },
+    [informativos, failedIds],
+  )
+  const nextInformativo = useMemo(
+    function() { return pickNextInformativo(playableInformativos, completedInformativoIds) },
+    [pickNextInformativo, playableInformativos, completedInformativoIds],
+  )
   // Informativo determinístico: aparece a cada 7 conteúdos acadêmicos
   const INFORMATIVO_INTERVAL = 7
   const informativoDue = (
-    informativos.length > 0 &&
+    playableInformativos.length > 0 &&
     queue.length > 0 &&
     academicSinceLastInformativo >= INFORMATIVO_INTERVAL
   )
@@ -627,9 +701,10 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       error_contents: failedIds,
       completed_fixed_ids: completedFixedIds,
       academic_since_last_informativo: academicSinceLastInformativo,
+      completed_informativo_ids: completedInformativoIds,
       last_video_played_at: lastVideoPlayedAt,
     })
-  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo, lastVideoPlayedAt])
+  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo, completedInformativoIds, lastVideoPlayedAt])
 
   const value: ProgrammingContextValue = {
     queue,
@@ -643,6 +718,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     markCurrentCompleted,
     reportMediaFailure,
     resetInformativoCounter,
+    failedIds,
     getQueueStats,
     fixedContent,
     nextFixedId,

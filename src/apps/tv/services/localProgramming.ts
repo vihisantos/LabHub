@@ -110,8 +110,14 @@ export function mediaFingerprint(file: LocalMediaFile): string {
   return JSON.stringify([file.path, file.relativePath, file.fileType, file.size, file.modifiedAt ?? null])
 }
 
+/** A pasta Clima/ pertence só ao slide meteorológico: não muda a fila acadêmica. */
+export function isAcademicLibraryFile(file: LocalMediaFile): boolean {
+  const location = (file.relativePath || file.path).replace(/\\/g, '/').toLowerCase()
+  return !location.split('/').some((part) => part === 'clima')
+}
+
 export function libraryFingerprint(files: LocalMediaFile[]): string {
-  return JSON.stringify(files.map(mediaFingerprint).sort())
+  return JSON.stringify(files.filter(isAcademicLibraryFile).map(mediaFingerprint).sort())
 }
 
 /** Compatibilidade com consumidores que só precisam dos arquivos. */
@@ -181,6 +187,7 @@ export function toLocalUrl(filePath: string): string {
 const FIXED_ROOT = 'fixos'
 const INFORMATIVOS_ROOT = 'informativos'
 const GALLERIES_ROOT = 'galerias'
+const CLIMATE_ROOT = 'clima'
 
 /** Primeiro segmento do caminho relativo (nome da pasta raiz). */
 /** @deprecated - kept for reference, not used in current implementation */
@@ -298,6 +305,10 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
     if (segs.length < 2) {
       continue // arquivo solto na raiz: sem categoria
     }
+
+    // Clima/ é exclusivo do slide meteorológico; nunca vira curso nem entra
+    // na fila acadêmica (mesmo em instalações sem a pasta Cursos/).
+    if (segs.some((seg) => normalizeRoot(seg) === CLIMATE_ROOT)) continue
 
     // Encontrar índice de cada categoria no caminho
     const cursosIdx = findCategoryIndex(segs, 'cursos')
