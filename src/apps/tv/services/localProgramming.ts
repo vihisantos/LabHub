@@ -219,29 +219,22 @@ function segments(path: string | null): string[] {
   // Normalizar: remover 'Meu Drive' se seguido de 'LabHub-TV' ou variantes
   // O objetivo é ter apenas o nome da pasta raiz (ex: 'LabHub-TV')
   const normalized: string[] = []
-  let skipUntilNext = false
 
   for (let i = 0; i < result.length; i++) {
     const curr = result[i]
 
-    if (skipUntilNext) {
-      // Se próximo for LabHub-TV ou similar, pular até lá
-      if (curr.toLowerCase().includes('labhub')) {
-        normalized.push('LabHub-TV')
-        skipUntilNext = false
-      }
+    // 'Meu Drive' é só o prefixo do Google Drive; pula os DOIS segmentos e
+    // continua. Não pode "pular até encontrar labhub": instalações cuja pasta
+    // não tem LabHub no nome perderiam Fixos/ e Informativos/ inteiros.
+    if (curr.toLowerCase() === 'meu' && result[i + 1]?.toLowerCase() === 'drive') {
+      i += 1
       continue
     }
 
-    // Detectar 'Meu Drive' seguido de LabHub-TV
-    if (curr.toLowerCase() === 'meu' && i < result.length - 2 && result[i + 1]?.toLowerCase() === 'drive') {
-      // Pular 'Meu', 'Drive' e processar 'LabHub-TV' depois
-      skipUntilNext = true
-      continue
-    }
-
-    // Normalizar 'LabHub -TV' ou 'LabHub-TV' como um único segmento
-    if (curr.toLowerCase().includes('labhub')) {
+    // Normalizar a pasta raiz ('LabHub -TV' / 'LabHub-TV'). O último segmento
+    // é o arquivo: um vídeo chamado labhub.mp4 não pode virar raiz falsa e
+    // fazer o slicing descartar a categoria.
+    if (i < result.length - 1 && curr.toLowerCase().includes('labhub')) {
       normalized.push('LabHub-TV')
       continue
     }
@@ -299,7 +292,7 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
     }
 
     const allSegments = segments(pathForSegment)
-    const rootIdx = !file.relativePath ? allSegments.lastIndexOf('LabHub-TV') : -1
+    const rootIdx = !file.relativePath ? allSegments.indexOf('LabHub-TV') : -1
     const segs = rootIdx >= 0 ? allSegments.slice(rootIdx + 1) : allSegments
 
     if (segs.length < 2) {
@@ -310,26 +303,30 @@ export function discoverLocalStructure(files: LocalMediaFile[]): LocalDiscovery 
     // na fila acadêmica (mesmo em instalações sem a pasta Cursos/).
     if (segs.some((seg) => normalizeRoot(seg) === CLIMATE_ROOT)) continue
 
-    // Encontrar índice de cada categoria no caminho
+    // Encontrar índice de cada categoria no caminho. A PRIMEIRA categoria do
+    // caminho decide: um arquivo em Cursos/<curso>/Fixos/ é acadêmico, não
+    // deve ser reclassificado como fixo por causa da subpasta.
     const cursosIdx = findCategoryIndex(segs, 'cursos')
     const fixosIdx = findCategoryIndex(segs, 'fixos')
     const informativosIdx = findCategoryIndex(segs, 'informativos')
     const galeriasIdx = findCategoryIndex(segs, 'galerias')
+    const found = [cursosIdx, fixosIdx, informativosIdx, galeriasIdx].filter(function(i) { return i >= 0 })
+    const firstCategory = found.length > 0 ? Math.min(...found) : -1
 
-    // Verificar se é conteúdo fixo (em Fixos/)
-    if (fixosIdx !== -1 && fixosIdx < segs.length - 1) {
+    // Verificar se é conteúdo fixo (em Fixos/, inclusive subpastas)
+    if (fixosIdx !== -1 && firstCategory === fixosIdx && fixosIdx < segs.length - 1) {
       fixedFiles.push(file)
       continue
     }
 
-    // Verificar se é conteúdo informativo (em Informativos/)
-    if (informativosIdx !== -1 && informativosIdx < segs.length - 1) {
+    // Verificar se é conteúdo informativo (em Informativos/, inclusive subpastas)
+    if (informativosIdx !== -1 && firstCategory === informativosIdx && informativosIdx < segs.length - 1) {
       informativoFiles.push(file)
       continue
     }
 
     // Verificar se é galeria (em Galerias/<nome>/...)
-    if (galeriasIdx !== -1 && galeriasIdx < segs.length - 2) {
+    if (galeriasIdx !== -1 && firstCategory === galeriasIdx && galeriasIdx < segs.length - 2) {
       if (file.fileType !== 'image') continue
       const galleryName = segs[galeriasIdx + 1]
       const key = slugify(galleryName)

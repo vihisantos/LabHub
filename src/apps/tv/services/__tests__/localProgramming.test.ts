@@ -213,3 +213,56 @@ describe('imagens na biblioteca local', () => {
     expect(libraryFingerprint([{...a, modifiedAt: 1}])).not.toBe(libraryFingerprint([{...a, modifiedAt: 2}]))
   })
 })
+
+describe('descoberta de Fixos e Informativos em subpastas', () => {
+  const file = (relativePath: string | null, path?: string): LocalMediaFile => ({
+    name: (relativePath ?? path ?? '').split(/[\\/]/).pop()!,
+    path: path ?? `G:/LabHub-TV/${relativePath}`,
+    relativePath,
+    fileType: String(relativePath ?? path).endsWith('.mp4') ? 'video' : 'image',
+    size: 2048,
+  })
+
+  it('encontra arquivos em subpastas dentro de Fixos/ e Informativos/', () => {
+    const result = discoverLocalStructure([
+      file('Fixos/campanhas/zeta.mp4'),
+      file('Informativos/2026/aviso.jpg'),
+    ])
+    expect(result.fixed.map(f => f.file_name)).toEqual(['zeta.mp4'])
+    expect(result.informativos.map(f => f.file_name)).toEqual(['aviso.jpg'])
+  })
+
+  it('não perde categorias quando relativePath é null e não há LabHub no caminho', () => {
+    const result = discoverLocalStructure([
+      file(null, 'G:/Meu Drive/Informativos/aviso.mp4'),
+      file(null, 'G:/Meu Drive/Fixos/banner.mp4'),
+    ])
+    expect(result.informativos.map(f => f.file_name)).toEqual(['aviso.mp4'])
+    expect(result.fixed.map(f => f.file_name)).toEqual(['banner.mp4'])
+  })
+
+  it('um arquivo chamado labhub.mp4 não é confundido com a pasta raiz', () => {
+    const result = discoverLocalStructure([
+      file(null, 'G:/Meu Drive/LabHub-TV/Fixos/labhub.mp4'),
+    ])
+    expect(result.fixed.map(f => f.file_name)).toEqual(['labhub.mp4'])
+  })
+
+  it('a primeira categoria do caminho decide: Fixos dentro de Cursos é acadêmico', () => {
+    const result = discoverLocalStructure([
+      file('Cursos/Direito/Fixos/logo.mp4'),
+      file('Cursos/Direito/aula.mp4'),
+    ])
+    expect(result.fixed).toHaveLength(0)
+    expect(result.informativos).toHaveLength(0)
+    expect(buildLocalQueue(result.courses, []).map(i => i.file_name).sort()).toEqual(['aula.mp4', 'logo.mp4'])
+  })
+
+  it('ignora arquivos soltos na raiz e preserva maiúsculas na extensão', () => {
+    const result = discoverLocalStructure([
+      file('raiz.mp4', 'G:/LabHub-TV/raiz.mp4'),
+      file('Fixos/banner.MP4'),
+    ])
+    expect(result.fixed.map(f => f.file_name)).toEqual(['banner.MP4'])
+  })
+})

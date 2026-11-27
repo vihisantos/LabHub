@@ -8,12 +8,14 @@
  *
  * Regras de programação preservadas do modelo original:
  *   - Conteúdo fixo toca a cada 5 itens acadêmicos (academicSinceLastFixed >= 4).
- *   - Informativo toca a cada 7 itens acadêmicos (academicSinceLastInformativo >= 7),
- *     sem repetir o mesmo aviso dentro da rodada.
+ *   - Informativo toca a cada 7 itens acadêmicos (academicSinceLastInformativo >= 7).
+ *   - Ambos usam filas independentes, determinísticas e persistidas: todos os
+ *     arquivos válidos participam antes de uma nova rodada, sem aleatoriedade.
+ *   - Um conteúdo só é registrado como assistido quando a mídia termina.
  *   - Fim do ciclo → itens voltam a ficar pendentes e a ordem é reembaralhada;
  *     os contadores acumulados são preservados para as cadências periódicas.
- *   - Vídeos acadêmicos têm cooldown individual de 10 minutos; fotos, vinhetas,
- *     fixos e informativos são isentos (cada um segue sua própria regra).
+ *   - Todos os vídeos (acadêmicos, fixos e informativos) têm cooldown
+ *     individual de 10 minutos; fotos e vinhetas são isentos.
  */
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
@@ -31,6 +33,21 @@ import {
   type LocalDiscovery,
 } from '../services/localProgramming'
 import type { ProgrammingQueueItem, TvGallery, TvGalleryPhoto, TvInformativo } from '../types'
+import { logRotationSelection } from '../services/rotationLog'
+import {
+  completeRotationItem,
+  emptyRotationState,
+  fixedCandidates,
+  forgetRotationIds,
+  informativoCandidates,
+  reconcileRotation,
+  recordPlayback,
+  selectRotationItem,
+  type RotationCandidate,
+  type RotationSelection,
+  type RotationState,
+  type SpecialCategory,
+} from '../services/specialRotation'
 
 /* ── Contrato de persistência (espelha ProgrammingState em src-tauri/main.rs) ──
  * Os campos são snake_case porque o struct Rust não usa rename_all: as chaves
@@ -50,7 +67,14 @@ interface TauriProgrammingState {
   academic_since_last_informativo: number
   /** Rodada de informativos já exibidos (evita repetir o mesmo aviso). */
   completed_informativo_ids: string[]
+  /** Histórico individual de reprodução (vídeos de todas as categorias). */
   last_video_played_at?: Record<string, number>
+  /** Rodízio determinístico: ordem e posição persistidas por categoria. */
+  fixed_round_ids?: string[]
+  fixed_round_cursor?: number
+  informativo_round_ids?: string[]
+  informativo_round_cursor?: number
+  next_informativo_id?: string | null
 }
 
 function emptyTauriState(): TauriProgrammingState {
@@ -68,6 +92,11 @@ function emptyTauriState(): TauriProgrammingState {
     academic_since_last_informativo: 0,
     completed_informativo_ids: [],
     last_video_played_at: {},
+    fixed_round_ids: [],
+    fixed_round_cursor: 0,
+    informativo_round_ids: [],
+    informativo_round_cursor: 0,
+    next_informativo_id: null,
   }
 }
 
@@ -89,22 +118,28 @@ interface ProgrammingContextValue {
   markContentShown: () => void
   advance: () => void
   markCurrentCompleted: () => void
+  /**
+   * Conclusão efetiva de um fixo/informativo (fim do vídeo ou do timer da
+   * imagem). Só aqui o conteúdo entra no histórico da rodada e recebe cooldown.
+   */
+  markSpecialContentCompleted: (category: SpecialCategory, id: string) => void
   /** Registra mídia inválida para não repeti-la na próxima rodada. */
   reportMediaFailure: (id: string) => void
-  /** Encerra um informativo: zera o contador e registra o ID na rodada atual. */
+  /** Compatibilidade: encerra um informativo pelo ID. */
   resetInformativoCounter: (informativoId?: string) => void
   /** IDs de mídia que falharam ao carregar (fixos/informativos também). */
   failedIds: string[]
   getQueueStats: () => { total: number; completed: number; pending: number }
   /** Conteúdo fixo (Fixos/) — exibido quando isFixedDue. */
   fixedContent: ProgrammingQueueItem[]
-  /** Próximo conteúdo fixo escolhido (aleatório entre disponíveis). */
+  /** Próximo conteúdo fixo da fila determinística (estável durante a fase). */
   nextFixedId: string | null
-  /** Histórico da rodada atual de fixos (sem repetição antes de esgotar a pasta). */
+  /** Fixos já concluídos nesta rodada. */
   completedFixedIds: string[]
   isFixedDue: boolean
   /** Informativos (Informativos/) — fase ocasional. */
   informativos: TvInformativo[]
+  /** Próximo informativo da fila determinística (estável durante a fase). */
   nextInformativo: TvInformativo | null
   informativoDue: boolean
   /** Galerias locais (Galerias/) para a fase de fotos. */
@@ -120,13 +155,18 @@ interface ProgrammingContextValue {
 
 export const LIBRARY_REFRESH_MS = 60_000
 export const VIDEO_COOLDOWN_MS = 10 * 60_000
+/** 1 fixo a cada 5 acadêmicos: 4 concluídos + 1 exibido. */
+export const FIXED_INTERVAL = 4
+/** 1 informativo a cada 7 acadêmicos concluídos. */
+export const INFORMATIVO_INTERVAL = 7
 /** Reavaliação leve durante a espera: sem novo timer por item e sem reinício. */
 export const COOLDOWN_RECHECK_MS = 1_000
 
 function isCoolingDown(
   item: ProgrammingQueueItem, history: Record<string, number>, now: number,
 ): boolean {
-  // Vinhetas, fotos, comerciais e avisos são isentos — cada um tem regra própria.
+  // Esta checagem é só da fila acadêmica: fotos/vinhetas são isentos e fixos/
+  // informativos têm cooldown próprio no rodízio determinístico (specialRotation).
   if (item.file_type !== 'video' || item.is_trailer || item.is_fixed) return false
   const last = history[item.id]
   return last !== undefined && now - last < VIDEO_COOLDOWN_MS
@@ -193,13 +233,15 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   const [contentShown, setContentShown] = useState(0)
   const [academicSinceLastFixed, setAcademicSinceLastFixed] = useState(0)
   const [completedIds, setCompletedIds] = useState<string[]>([])
-  const [completedFixedIds, setCompletedFixedIds] = useState<string[]>([])
+  /** Rodada determinística de fixos: ordem, cursor e concluídos persistidos. */
+  const [fixedRotation, setFixedRotation] = useState<RotationState>(emptyRotationState)
   const [nextFixedId, setNextFixedId] = useState<string | null>(null)
   const [libraryVersion, setLibraryVersion] = useState<string | null>(null)
-  // Contador para informativos determinísticos: a cada 7 acadêmicos, exibe 1 informativo
+  // Contador de acadêmicos desde o último informativo concluído (7:1).
   const [academicSinceLastInformativo, setAcademicSinceLastInformativo] = useState(0)
-  /** Rodada de informativos já exibidos, persistida para não repetir o mesmo aviso. */
-  const [completedInformativoIds, setCompletedInformativoIds] = useState<string[]>([])
+  /** Rodada determinística de informativos, independente da de fixos. */
+  const [informativoRotation, setInformativoRotation] = useState<RotationState>(emptyRotationState)
+  const [nextInformativoId, setNextInformativoId] = useState<string | null>(null)
   /** IDs de mídia que falharam ao carregar — persistidos em `error_contents`. */
   const [failedIds, setFailedIds] = useState<string[]>([])
   /** Falha transitória de leitura da pasta: impede sobrescrever o estado salvo. */
@@ -213,6 +255,22 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   positionRef.current = position
   const failedIdsRef = useRef(failedIds)
   failedIdsRef.current = failedIds
+  const fixedRotationRef = useRef(fixedRotation)
+  fixedRotationRef.current = fixedRotation
+  const informativoRotationRef = useRef(informativoRotation)
+  informativoRotationRef.current = informativoRotation
+  const nextFixedIdRef = useRef(nextFixedId)
+  nextFixedIdRef.current = nextFixedId
+  const nextInformativoIdRef = useRef(nextInformativoId)
+  nextInformativoIdRef.current = nextInformativoId
+  const academicSinceLastFixedRef = useRef(academicSinceLastFixed)
+  academicSinceLastFixedRef.current = academicSinceLastFixed
+  const academicSinceLastInformativoRef = useRef(academicSinceLastInformativo)
+  academicSinceLastInformativoRef.current = academicSinceLastInformativo
+  const readyRef = useRef(false)
+  const readErrorRef = useRef(readError)
+  readErrorRef.current = readError
+  const lastRotationLogRef = useRef<Record<string, string>>({})
 
   const [fixedContent, setFixedContent] = useState<ProgrammingQueueItem[]>([])
   const [informativos, setInformativos] = useState<TvInformativo[]>([])
@@ -221,6 +279,11 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
   const [ready, setReady] = useState(false)
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
+  const fixedContentRef = useRef(fixedContent)
+  fixedContentRef.current = fixedContent
+  const informativosRef = useRef(informativos)
+  informativosRef.current = informativos
+  readyRef.current = ready
 
   /** Guarda a descoberta atual para reconstruir a fila pelo pending_queue. */
   const discoveryRef = useRef<LocalDiscovery | null>(null)
@@ -245,28 +308,22 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     }
   }, [])
 
-  /** Escolhe o próximo fixo: aleatório entre os ainda não exibidos na rodada de fixos (sem repetição). */
-  const pickNextFixedId = useCallback(function(
-    fixed: ProgrammingQueueItem[],
-    completedFixed: string[],
-  ): string | null {
-    if (fixed.length === 0) return null
-    let available = fixed.filter(function(f) { return !completedFixed.includes(f.id) })
-    // Se todos os fixos da rodada já foram exibidos, reinicia a rodada (Seção 6 do Plano)
-    if (available.length === 0) {
-      available = fixed
-    }
-    return available[Math.floor(Math.random() * available.length)].id
-  }, [])
-
-  /** Escolhe o próximo informativo (aleatório entre os ainda não exibidos na rodada). */
-  const pickNextInformativo = useCallback(function(
-    availableInformativos: TvInformativo[],
-    completed: string[],
-  ): TvInformativo | null {
-    const available = availableInformativos.filter(function(i) { return !completed.includes(i.id) })
-    if (available.length === 0) return null
-    return available[Math.floor(Math.random() * available.length)]
+  /** Estado de rodízio persistido, reconciliado com os arquivos agora válidos. */
+  const restoreRotation = useCallback(function(
+    saved: TauriProgrammingState | null,
+    candidates: RotationCandidate[],
+    category: SpecialCategory,
+  ): RotationState {
+    const roundIds = category === 'fixed'
+      ? saved?.fixed_round_ids ?? []
+      : saved?.informativo_round_ids ?? []
+    const cursor = category === 'fixed'
+      ? saved?.fixed_round_cursor ?? 0
+      : saved?.informativo_round_cursor ?? 0
+    const playedIds = category === 'fixed'
+      ? saved?.completed_fixed_ids ?? []
+      : saved?.completed_informativo_ids ?? []
+    return reconcileRotation({ roundIds, cursor, playedIds }, candidates)
   }, [])
 
   /** Reconstrói a fila a partir de pending_queue persistido + descoberta atual. */
@@ -318,11 +375,20 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
             setAcademicCompleted(saved.academic_completed ?? 0)
             setAcademicSinceLastFixed(saved.academic_since_last_fixed ?? 0)
             setCompletedIds(saved.completed_ids ?? [])
-            setNextFixedId(saved.next_fixed_id)
-            setLibraryVersion(saved.library_version)
-            setCompletedFixedIds(saved.completed_fixed_ids ?? [])
+            setNextFixedId(saved.next_fixed_id ?? null)
+            setLibraryVersion(saved.library_version ?? null)
+            setFixedRotation({
+              roundIds: saved.fixed_round_ids ?? [],
+              cursor: saved.fixed_round_cursor ?? 0,
+              playedIds: saved.completed_fixed_ids ?? [],
+            })
             setAcademicSinceLastInformativo(saved.academic_since_last_informativo ?? 0)
-            setCompletedInformativoIds(saved.completed_informativo_ids ?? [])
+            setInformativoRotation({
+              roundIds: saved.informativo_round_ids ?? [],
+              cursor: saved.informativo_round_cursor ?? 0,
+              playedIds: saved.completed_informativo_ids ?? [],
+            })
+            setNextInformativoId(saved.next_informativo_id ?? null)
           }
           // Sem descoberta não há itens para reconstruir, mas o player precisa
           // sair do "carregando": a tela de manutenção orienta o operador.
@@ -337,21 +403,30 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         pendingFilesRef.current = null
         candidateFingerprintRef.current = null
 
-        setFixedContent(discovery.fixed.map(function(f): ProgrammingQueueItem {
-          return {
-            id: f.id,
-            type: 'fixed',
-            file_path: f.file_path,
-            file_name: f.file_name,
-            file_type: f.file_type,
-            duration_seconds: f.duration_seconds,
-            is_trailer: false,
-            is_fixed: true,
-          }
-        }))
+        const fixedItems = discovery.fixed.map(toFixedItem)
+        setFixedContent(fixedItems)
         setInformativos(discovery.informativos)
         setGalleries(discovery.galleries)
         setPhotosMap(discovery.photosMap)
+        // Ordem/cursor restaurados por categoria; arquivos novos entram no fim.
+        const savedFixedRotation = restoreRotation(saved, fixedCandidates(fixedItems), 'fixed')
+        const savedInformativoRotation = restoreRotation(saved, informativoCandidates(discovery.informativos), 'informativo')
+        const freshFixedRotation = restoreRotation(null, fixedCandidates(fixedItems), 'fixed')
+        const freshInformativoRotation = restoreRotation(null, informativoCandidates(discovery.informativos), 'informativo')
+
+        /** Seleção inicial já no primeiro render: a cadência não perde um ciclo. */
+        const initialSpecialState = function(
+          rotation: RotationState,
+          candidates: RotationCandidate[],
+          failures: string[],
+          due: boolean,
+        ) {
+          if (!due) return { rotation, id: null }
+          const selection = selectRotationItem(
+            rotation, candidates, historyRef.current, failures, Date.now(), VIDEO_COOLDOWN_MS,
+          )
+          return { rotation: selection.state, id: selection.id }
+        }
 
         if (discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0) {
           setDiscoveryError(
@@ -366,11 +441,16 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
           && Array.isArray(saved.pending_queue)
           && saved.pending_queue.length > 0
 
-        const restoredFailed = saved?.error_contents ?? []
+        // Um arquivo reparado enquanto o app estava desligado não pode ficar
+        // preso em error_contents para sempre: modifiedAt posterior ao último
+        // save prova que houve alteração desde a falha registrada.
+        const savedAt = saved?.library_version ? Date.parse(saved.library_version) : NaN
+        const restoredFailed = (saved?.error_contents ?? []).filter(function(id) {
+          if (!Number.isFinite(savedAt)) return true
+          const file = files.find(function(f) { return localId(f.path) === id })
+          return !(file?.modifiedAt && file.modifiedAt > savedAt)
+        })
         setFailedIds(restoredFailed)
-        const informativoIds = new Set(discovery.informativos.map(i => i.id))
-        const restoredInformativoIds = (saved?.completed_informativo_ids ?? [])
-          .filter(id => informativoIds.has(id))
 
         if (saved && queueValid && saved.library_version) {
           // Retomada: restaura contadores e reconstrói a fila pelos IDs.
@@ -382,14 +462,35 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
             if (eligible === restored.length) eligible = nextEligiblePosition(restored, 0, historyRef.current, restoredFailed)
             setPosition(eligible)
             setAcademicCompleted(saved.academic_completed ?? 0)
-            setAcademicSinceLastFixed(saved.academic_since_last_fixed ?? 0)
             setCompletedIds(saved.completed_ids ?? [])
-            setNextFixedId(saved.next_fixed_id)
             setLibraryVersion(saved.library_version)
-            // Novos campos com fallback para estado vazio (compatibilidade retroativa)
-            setCompletedFixedIds(saved.completed_fixed_ids ?? [])
-            setAcademicSinceLastInformativo(saved.academic_since_last_informativo ?? 0)
-            setCompletedInformativoIds(restoredInformativoIds)
+
+            // Se o app fechou depois do fim da mídia mas antes do limite da
+            // sequência, a conclusão já está em playedIds: liquida a cadência
+            // aqui para não exibir o mesmo arquivo duas vezes na retomada.
+            const fixedConcluded = !!saved.next_fixed_id
+              && savedFixedRotation.playedIds.includes(saved.next_fixed_id)
+            const informativoConcluded = !!saved.next_informativo_id
+              && savedInformativoRotation.playedIds.includes(saved.next_informativo_id)
+            const fixedCounter = fixedConcluded ? 0 : (saved.academic_since_last_fixed ?? 0)
+            const informativoCounter = informativoConcluded ? 0 : (saved.academic_since_last_informativo ?? 0)
+
+            const fixedStart = initialSpecialState(
+              savedFixedRotation, fixedCandidates(fixedItems), restoredFailed,
+              fixedCounter >= FIXED_INTERVAL
+                && fixedItems.some(function(f) { return !restoredFailed.includes(f.id) }),
+            )
+            const informativoStart = initialSpecialState(
+              savedInformativoRotation, informativoCandidates(discovery.informativos), restoredFailed,
+              informativoCounter >= INFORMATIVO_INTERVAL
+                && discovery.informativos.some(function(i) { return !restoredFailed.includes(i.id) }),
+            )
+            setFixedRotation(fixedStart.rotation)
+            setInformativoRotation(informativoStart.rotation)
+            setNextFixedId(fixedStart.id)
+            setNextInformativoId(informativoStart.id)
+            setAcademicSinceLastFixed(fixedCounter)
+            setAcademicSinceLastInformativo(informativoCounter)
             setReady(true)
             return
           }
@@ -404,17 +505,23 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
         setAcademicSinceLastFixed(0)
         setCompletedIds([])
         setAcademicSinceLastInformativo(0)
-        setCompletedInformativoIds([])
-        const firstFixedId = pickNextFixedId(discovery.fixed.map(toFixedItem), [])
-        setNextFixedId(firstFixedId)
+        setFixedRotation(freshFixedRotation)
+        setInformativoRotation(freshInformativoRotation)
+        setNextFixedId(null)
+        setNextInformativoId(null)
         setLibraryVersion(version)
         persistState({
           ...emptyTauriState(),
           pending_queue: newQueue.map(function(i) { return i.id }),
-          next_fixed_id: firstFixedId,
           library_version: version,
           error_contents: restoredFailed,
           last_video_played_at: historyRef.current,
+          fixed_round_ids: freshFixedRotation.roundIds,
+          fixed_round_cursor: freshFixedRotation.cursor,
+          completed_fixed_ids: freshFixedRotation.playedIds,
+          informativo_round_ids: freshInformativoRotation.roundIds,
+          informativo_round_cursor: freshInformativoRotation.cursor,
+          completed_informativo_ids: freshInformativoRotation.playedIds,
         })
       } catch (e) {
         console.error('[Programming] erro no carregamento local:', e)
@@ -439,7 +546,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
 
     void loadInitialData()
     return function() { cancelled = true }
-  }, [loadPersistedState, persistState, pickNextFixedId, rebuildQueueFromIds, initialRetry])
+  }, [loadPersistedState, persistState, restoreRotation, rebuildQueueFromIds, initialRetry])
 
   // Só descobre em segundo plano. A troca de fila acontece em advance(),
   // chamado pela TV ao terminar a sequência de fases em andamento.
@@ -515,10 +622,22 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       file_type: f.file_type, duration_seconds: f.duration_seconds, is_trailer: false, is_fixed: true,
     }))
     setFixedContent(nextFixed)
-    setCompletedFixedIds(ids => ids.filter(id => nextFixed.some(f => f.id === id) && !changed.has(id)))
-    const informativoIds = new Set(discovery.informativos.map(i => i.id))
-    setCompletedInformativoIds(ids => ids.filter(id => informativoIds.has(id) && !changed.has(id)))
     setInformativos(discovery.informativos)
+    // Novos arquivos entram no fim da rodada; alterados perdem o histórico.
+    const fixedIds = fixedCandidates(nextFixed)
+    const infoIds = informativoCandidates(discovery.informativos)
+    const nextFixedRotation = reconcileRotation(
+      forgetRotationIds(fixedRotationRef.current, [...changed]), fixedIds,
+    )
+    const nextInformativoRotation = reconcileRotation(
+      forgetRotationIds(informativoRotationRef.current, [...changed]), infoIds,
+    )
+    fixedRotationRef.current = nextFixedRotation
+    informativoRotationRef.current = nextInformativoRotation
+    setFixedRotation(nextFixedRotation)
+    setInformativoRotation(nextInformativoRotation)
+    if (nextFixedIdRef.current && !nextFixedRotation.roundIds.includes(nextFixedIdRef.current)) setNextFixedId(null)
+    if (nextInformativoIdRef.current && !nextInformativoRotation.roundIds.includes(nextInformativoIdRef.current)) setNextInformativoId(null)
     setGalleries(discovery.galleries)
     setPhotosMap(discovery.photosMap)
     setDiscoveryError(discovery.totalContents === 0 && discovery.totalFixed === 0 && discovery.informativos.length === 0 && discovery.galleries.length === 0
@@ -622,20 +741,167 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     }
   }, [applyPendingLibrary])
 
-  // Repara a seleção de fixos se uma atualização remover o próximo comercial
-  // ou se ele tiver falhado ao carregar (mídia inválida não entra na rodada).
   const playableFixed = useMemo(
     function() { return fixedContent.filter(function(f) { return !failedIds.includes(f.id) }) },
     [fixedContent, failedIds],
   )
 
-  useEffect(function() {
-    if (nextFixedId && playableFixed.some(f => f.id === nextFixedId)) return
-    const next = pickNextFixedId(playableFixed, completedFixedIds)
-    if (next !== nextFixedId) setNextFixedId(next)
-  }, [playableFixed, nextFixedId, completedFixedIds, pickNextFixedId])
+  /**
+   * Mantém as duas filas independentes atualizadas. A escolha só muda quando o
+   * agendado desaparece, falha ou entra em cooldown — nunca no meio de uma
+   * reprodução. Se nada estiver elegível, a pendência permanece (contador
+   * ligado, sem registrar conclusão) para a próxima oportunidade.
+   */
+  const reevaluateSpecialSelection = useCallback(function(fixedDue: boolean, informativoDue: boolean) {
+    if (!readyRef.current || readErrorRef.current) return
+    const now = Date.now()
+    const history = historyRef.current
+    const failures = failedIdsRef.current
+
+    function candidatesForRotation(state: RotationState, candidates: RotationCandidate[]): RotationCandidate[] {
+      const positions = new Map(candidates.map(function(c) { return [c.id, c] }))
+      const ordered = state.roundIds
+        .map(function(id) { return positions.get(id) })
+        .filter(function(c): c is RotationCandidate { return !!c })
+      for (const c of candidates) {
+        if (!state.roundIds.includes(c.id)) ordered.push(c)
+      }
+      return ordered
+    }
+
+    function logSelection(category: SpecialCategory, chosen: RotationCandidate | undefined, selection: RotationSelection) {
+      const key = category + '|' + (selection.id ?? '-') + '|' + selection.reason
+      if (key === lastRotationLogRef.current[key]) return
+      lastRotationLogRef.current[key] = key
+      logRotationSelection({
+        category,
+        name: chosen?.name ?? '(sem arquivo elegível)',
+        lastPlayed: selection.id ? history[selection.id] : undefined,
+        cooldownMs: VIDEO_COOLDOWN_MS,
+        reason: selection.reason,
+      })
+    }
+
+    function evaluate(
+      category: SpecialCategory,
+      rotationRef: { current: RotationState },
+      candidatesIn: RotationCandidate[],
+      scheduled: string | null,
+      setRotation: (state: RotationState) => void,
+      schedule: (id: string | null) => void,
+      due: boolean,
+    ) {
+      // Sem cadência vencida não há fase especial: não agenda nem registra log.
+      if (!due) {
+        if (scheduled !== null) schedule(null)
+        return
+      }
+      const candidates = candidatesForRotation(rotationRef.current, candidatesIn)
+      // Já concluído nesta sequência: mantém o agendamento até o limite, senão
+      // a recomposição das fases pularia vinhetas/clima/relógio no meio da mídia.
+      if (scheduled && rotationRef.current.playedIds.includes(scheduled)) return
+      const current = candidates.find(function(c) { return c.id === scheduled && !failures.includes(scheduled) })
+      if (current) {
+        const lastScheduled = history[current.id]
+        const cooling = current.type === 'video' && lastScheduled !== undefined && now - lastScheduled < VIDEO_COOLDOWN_MS
+        if (!cooling) return
+        // Enquanto espera, procura outro elegível em vez de insistir no mesmo.
+        // Se não houver nenhum, o próprio agendamento permanece como pendência.
+      }
+
+      const selection = selectRotationItem(rotationRef.current, candidates, history, failures, now, VIDEO_COOLDOWN_MS)
+      const blocked = !selection.id && current && current.type === 'video'
+        && history[current.id] !== undefined && now - history[current.id] < VIDEO_COOLDOWN_MS
+      if (blocked) {
+        const release = new Date(history[current.id] + VIDEO_COOLDOWN_MS).toISOString()
+        logRotationSelection({
+          category,
+          name: current.name,
+          lastPlayed: history[current.id],
+          cooldownMs: VIDEO_COOLDOWN_MS,
+          reason: `pendência preservada — nenhum outro elegível; ${current.name} libera às ${release}`,
+        })
+        return
+      }
+      if (selection.state !== rotationRef.current) {
+        rotationRef.current = selection.state
+        setRotation(selection.state)
+      }
+      if (selection.id !== scheduled) schedule(selection.id)
+      logSelection(category, candidates.find(function(c) { return c.id === selection.id }), selection)
+    }
+
+    evaluate(
+      'fixed', fixedRotationRef, fixedCandidates(fixedContentRef.current),
+      nextFixedIdRef.current, setFixedRotation,
+      function(id) { nextFixedIdRef.current = id; setNextFixedId(id) },
+      fixedDue,
+    )
+    evaluate(
+      'informativo', informativoRotationRef, informativoCandidates(informativosRef.current),
+      nextInformativoIdRef.current, setInformativoRotation,
+      function(id) { nextInformativoIdRef.current = id; setNextInformativoId(id) },
+      informativoDue,
+    )
+  }, [])
+
+  /** Conclusão efetiva: só aqui a mídia entra no histórico e no cooldown. */
+  const markSpecialContentCompleted = useCallback(function(category: SpecialCategory, id: string) {
+    const now = Date.now()
+    const candidates = category === 'fixed'
+      ? fixedCandidates(fixedContentRef.current)
+      : informativoCandidates(informativosRef.current)
+    const item = candidates.find(function(c) { return c.id === id })
+    if (!item) return
+
+    if (item.type === 'video') {
+      historyRef.current = recordPlayback(historyRef.current, id, 'video', now, VIDEO_COOLDOWN_MS)
+      setLastVideoPlayedAt(historyRef.current)
+    }
+    const rotationRef = category === 'fixed' ? fixedRotationRef : informativoRotationRef
+    const setRotation = category === 'fixed' ? setFixedRotation : setInformativoRotation
+    const next = completeRotationItem(rotationRef.current, id)
+    rotationRef.current = next
+    setRotation(next)
+
+    // A cadência NÃO é zerada aqui: o agendamento continua travado até o limite
+    // da sequência para que trocar de item não recomponha as fases no meio da
+    // reprodução (isso pularia vinheta, clima ou relógio).
+    logRotationSelection({
+      category,
+      name: item.name,
+      lastPlayed: now,
+      cooldownMs: VIDEO_COOLDOWN_MS,
+      reason: 'conclusão efetiva registrada — próximo liberado no limite da sequência',
+    })
+  }, [])
+
+  /** Libera a cadência no limite da sequência (após a última fase). */
+  const finishSpecialSequence = useCallback(function(category: SpecialCategory) {
+    if (category === 'fixed') {
+      setAcademicSinceLastFixed(0)
+      nextFixedIdRef.current = null
+      setNextFixedId(null)
+    } else {
+      setAcademicSinceLastInformativo(0)
+      nextInformativoIdRef.current = null
+      setNextInformativoId(null)
+    }
+  }, [])
 
   const markCurrentCompleted = useCallback(function() {
+    // Limite da sequência: só agora a cadência é zerada. O conteúdo especial
+    // já foi registrado no fim de sua própria mídia (playedIds + cooldown).
+    if (nextFixedIdRef.current && fixedRotationRef.current.playedIds.includes(nextFixedIdRef.current)) {
+      finishSpecialSequence('fixed')
+    }
+    if (
+      nextInformativoIdRef.current
+      && informativoRotationRef.current.playedIds.includes(nextInformativoIdRef.current)
+    ) {
+      finishSpecialSequence('informativo')
+    }
+
     const current = queue[position]
     // Durante o fallback de cooldown não há conteúdo acadêmico em andamento:
     // relógio/clima não podem consumir contadores nem avançar a fila. Ainda
@@ -653,53 +919,29 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     {
       if (!current.is_fixed) {
         if (current.file_type === 'video' && !current.is_trailer) {
-          const now = Date.now()
-          const recent = Object.fromEntries(Object.entries(historyRef.current).filter(([, time]) => now - time < VIDEO_COOLDOWN_MS))
-          historyRef.current = { ...recent, [current.id]: now }
+          historyRef.current = recordPlayback(historyRef.current, current.id, 'video', Date.now(), VIDEO_COOLDOWN_MS)
           setLastVideoPlayedAt(historyRef.current)
         }
         setCompletedIds(function(prev) { return [...prev, current.id] })
         setAcademicCompleted(function(prev) { return prev + 1 })
-        // Incrementa contador de informativos a cada conteúdo acadêmico
+        // As cadências só zeram na CONCLUSÃO do fixo/informativo (abaixo),
+        // nunca aqui: assim a pendência sobrevive a cooldown e a falhas.
+        setAcademicSinceLastFixed(function(prev) { return prev + 1 })
         setAcademicSinceLastInformativo(function(prev) { return prev + 1 })
-
-        // Regra 5:1 de Fixos (1 comercial/institucional a cada 5 conteúdos acadêmicos concluídos)
-        if (academicSinceLastFixed >= 4 && playableFixed.length > 0) {
-          // Completou o ciclo de 5 acadêmicos e o comercial foi exibido:
-          setAcademicSinceLastFixed(0)
-
-          if (nextFixedId) {
-            setCompletedFixedIds(function(prev) {
-              const next = prev.includes(nextFixedId) ? prev : [...prev, nextFixedId]
-              if (next.length >= playableFixed.length) {
-                // Rodada completa de todos os fixos da pasta: reinicia a rodada
-                setNextFixedId(pickNextFixedId(playableFixed, []))
-                return []
-              }
-              setNextFixedId(pickNextFixedId(playableFixed, next))
-              return next
-            })
-          }
-        } else {
-          setAcademicSinceLastFixed(function(prev) { return prev + 1 })
-        }
       }
     }
     advance()
-  }, [queue, position, advance, failedIds, academicSinceLastFixed, playableFixed, nextFixedId, pickNextFixedId, resumeFromIdle])
+  }, [queue, position, advance, failedIds, resumeFromIdle, finishSpecialSequence])
 
-  // Chamado pelo TvDisplay ao concluir um informativo: zera o contador e
-  // registra o ID na rodada, para não repetir o mesmo aviso.
+  /** Compatibilidade com o player antigo: conclui o informativo pelo ID. */
   const resetInformativoCounter = useCallback(function(informativoId?: string) {
+    if (informativoId) {
+      markSpecialContentCompleted('informativo', informativoId)
+      finishSpecialSequence('informativo')
+      return
+    }
     setAcademicSinceLastInformativo(0)
-    if (!informativoId) return
-    setCompletedInformativoIds(function(prev) {
-      const next = prev.includes(informativoId) ? prev : [...prev, informativoId]
-      const available = informativos.filter(function(i) { return !failedIds.includes(i.id) })
-      // Rodada completa: reinicia para que os avisos voltem a ser elegíveis.
-      return available.every(function(i) { return next.includes(i.id) }) ? [] : next
-    })
-  }, [informativos, failedIds])
+  }, [markSpecialContentCompleted, finishSpecialSequence])
 
   const getQueueStats = useCallback(function() {
     return {
@@ -712,7 +954,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   /* ── Derivados ────────────────────────────────────────────────────────── */
 
   const currentItem = queue[position] ?? null
-  const isFixedDue = academicSinceLastFixed >= 4 && playableFixed.length > 0
+  const isFixedDue = academicSinceLastFixed >= FIXED_INTERVAL && playableFixed.length > 0
   // Mantém a escolha durante a sequência; re-render do relógio ou do contador
   // não pode substituir a mídia no meio da reprodução. Mídia que falhou é
   // excluída para não travar a cadência num aviso inválido.
@@ -723,11 +965,15 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     [informativos, failedIds],
   )
   const nextInformativo = useMemo(
-    function() { return pickNextInformativo(playableInformativos, completedInformativoIds) },
-    [pickNextInformativo, playableInformativos, completedInformativoIds],
+    function() {
+      return informativos.find(function(i) {
+        return i.id === nextInformativoId && !failedIds.includes(i.id)
+      }) ?? null
+    },
+    [informativos, nextInformativoId, failedIds],
   )
-  // Informativo determinístico: aparece a cada 7 conteúdos acadêmicos
-  const INFORMATIVO_INTERVAL = 7
+  const completedFixedIds = fixedRotation.playedIds
+  const completedInformativoIds = informativoRotation.playedIds
   const informativoDue = (
     playableInformativos.length > 0 &&
     queue.length > 0 &&
@@ -735,17 +981,35 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
   )
   /** Há biblioteca, mas o cooldown bloqueou todos os itens: modo de espera. */
   const isWaitingForEligible = ready && queue.length > 0 && currentItem === null
+  /** Cadência pendente sem arquivo agendado (ex.: todos em cooldown). */
+  const specialPending = (isFixedDue && !nextFixedId) || (informativoDue && !nextInformativoId)
+  const isFixedDueRef = useRef(isFixedDue)
+  isFixedDueRef.current = isFixedDue
+  const informativoDueRef = useRef(informativoDue)
+  informativoDueRef.current = informativoDue
 
-  // Reavalia a espera sem reiniciar: um único intervalo (criado apenas no modo
-  // de espera) aplica mudanças confirmadas do Drive e verifica a expiração do
-  // cooldown. A varredura do Drive continua em LIBRARY_REFRESH_MS, paralela.
+  // Escolha determinística: reavalia quando a cadência, a biblioteca, o
+  // histórico ou a agenda mudam. Um agendado válido nunca é substituído aqui.
   useEffect(function() {
-    // inclui a biblioteca inicialmente vazia: ela também precisa sair da espera
-    // quando o primeiro arquivo sincronizado é confirmado.
-    if (!ready || readError || currentItem !== null) return
-    const timer = window.setInterval(function() { resumeFromIdle() }, COOLDOWN_RECHECK_MS)
+    reevaluateSpecialSelection(isFixedDue, informativoDue)
+  }, [
+    reevaluateSpecialSelection, ready, readError, academicSinceLastFixed,
+    academicSinceLastInformativo, fixedContent, informativos, lastVideoPlayedAt,
+    failedIds, nextFixedId, nextInformativoId, fixedRotation, informativoRotation,
+    isFixedDue, informativoDue,
+  ])
+
+  // Um único intervalo leve cobre a espera por cooldown e pendências de fixos
+  // e informativos bloqueados. Não cria timers por conteúdo e não interrompe
+  // nenhuma mídia em reprodução.
+  useEffect(function() {
+    if (!ready || readError || (currentItem !== null && !specialPending)) return
+    const timer = window.setInterval(function() {
+      if (!queueRef.current[positionRef.current]) resumeFromIdle()
+      reevaluateSpecialSelection(isFixedDueRef.current, informativoDueRef.current)
+    }, COOLDOWN_RECHECK_MS)
     return function() { window.clearInterval(timer) }
-  }, [ready, readError, currentItem, resumeFromIdle])
+  }, [ready, readError, currentItem, specialPending, resumeFromIdle, reevaluateSpecialSelection])
 
   /* ── Salvamento periódico do estado (JSON durável local) ── */
   useEffect(function() {
@@ -765,8 +1029,13 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
       academic_since_last_informativo: academicSinceLastInformativo,
       completed_informativo_ids: completedInformativoIds,
       last_video_played_at: lastVideoPlayedAt,
+      fixed_round_ids: fixedRotation.roundIds,
+      fixed_round_cursor: fixedRotation.cursor,
+      informativo_round_ids: informativoRotation.roundIds,
+      informativo_round_cursor: informativoRotation.cursor,
+      next_informativo_id: nextInformativoId,
     })
-  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo, completedInformativoIds, lastVideoPlayedAt])
+  }, [ready, readError, position, academicCompleted, academicSinceLastFixed, completedIds, queue, nextFixedId, libraryVersion, persistState, failedIds, completedFixedIds, academicSinceLastInformativo, completedInformativoIds, lastVideoPlayedAt, fixedRotation, informativoRotation, nextInformativoId])
 
   const value: ProgrammingContextValue = {
     queue,
@@ -778,6 +1047,7 @@ export function ProgrammingProvider({ children }: ProgrammingProviderProps) {
     markContentShown,
     advance,
     markCurrentCompleted,
+    markSpecialContentCompleted,
     reportMediaFailure,
     resetInformativoCounter,
     failedIds,

@@ -46,8 +46,8 @@ const { programming, academicItem } = vi.hoisted(() => {
       discoveryError: null,
       isWaitingForEligible: false,
       markCurrentCompleted: vi.fn(),
+      markSpecialContentCompleted: vi.fn(),
       reportMediaFailure: vi.fn(),
-      resetInformativoCounter: vi.fn(),
       failedIds: [] as string[],
     },
   }
@@ -166,7 +166,7 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     programming.isWaitingForEligible = false
     programming.markCurrentCompleted.mockClear()
     programming.markContentShown.mockClear()
-    programming.resetInformativoCounter.mockClear()
+    programming.markSpecialContentCompleted.mockClear()
     document.documentElement.requestFullscreen = vi.fn().mockResolvedValue(undefined)
   })
 
@@ -307,32 +307,35 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.queryByTestId('video-player')).toBeNull()
   })
 
-  it('fixo em vídeo nunca reinicia o contador de informativos', () => {
+  it('fixo em vídeo registra a própria conclusão e nunca a de informativo', () => {
     programming.fixedContent = [FIXED]
     programming.nextFixedId = FIXED.id
     programming.isFixedDue = true
     renderDisplay()
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', FIXED.file_path)
     endPhase()
-    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('fixed', FIXED.id)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalledWith('informativo', expect.anything())
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
     endPhase()
-    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
   })
 
-  it('informativo em vídeo reinicia o próprio contador apenas após a sequência', () => {
-    programming.nextInformativo = {...INFORMATIVO, file_type: 'video', file_path: '/media/informativos/aviso.mp4'}
+  it('informativo em vídeo registra a conclusão no fim efetivo do vídeo', () => {
+    const videoInfo = {...INFORMATIVO, file_type: 'video', file_path: '/media/informativos/aviso.mp4'}
+    programming.nextInformativo = videoInfo as unknown as Record<string, unknown>
     programming.informativoDue = true
     renderDisplay()
-    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', '/media/informativos/aviso.mp4')
+    expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', videoInfo.file_path)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalled()
     endPhase()
-    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('informativo', videoInfo.id)
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
     endPhase()
-    expect(programming.resetInformativoCounter).toHaveBeenCalledTimes(1)
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
   })
 
-  it('informativo em imagem aguarda 15 segundos e não pula o conteúdo acadêmico', () => {
+  it('informativo em imagem aguarda 15 segundos e registra a conclusão no timer', () => {
     vi.useFakeTimers()
     programming.nextInformativo = INFORMATIVO as unknown as Record<string, unknown>
     programming.informativoDue = true
@@ -340,11 +343,12 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
     act(() => { vi.advanceTimersByTime(14999) })
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', INFORMATIVO.file_path)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalled()
     act(() => { vi.advanceTimersByTime(1) })
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('informativo', INFORMATIVO.id)
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
-    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
     endPhase()
-    expect(programming.resetInformativoCounter).toHaveBeenCalledTimes(1)
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledTimes(1)
   })
 
   it('imagem acadêmica usa o player de imagem e termina após 15 segundos', () => {
@@ -375,7 +379,8 @@ describe('TvDisplay — cadência dos slides especiais', () => {
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-content-type', 'image')
     act(() => { vi.advanceTimersByTime(15_000) })
     expect(screen.getByTestId('video-player')).toHaveAttribute('data-url', academicItem.file_path)
-    expect(programming.resetInformativoCounter).not.toHaveBeenCalled()
+    expect(programming.markSpecialContentCompleted).toHaveBeenCalledWith('fixed', banner.id)
+    expect(programming.markSpecialContentCompleted).not.toHaveBeenCalledWith('informativo', expect.anything())
   })
 
   it('registra cada conteúdo exibido uma única vez', () => {

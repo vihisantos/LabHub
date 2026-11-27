@@ -64,8 +64,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     discoveryError,
     isWaitingForEligible = false,
     markCurrentCompleted,
+    markSpecialContentCompleted,
     reportMediaFailure,
-    resetInformativoCounter,
     failedIds = [],
   } = programming
 
@@ -138,7 +138,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       seq.push(phase)
       played += 1
       if (played % 8 === 0) {
-        // Múltiplo de 8: clima (15s) e, na sequência, o relógio (12s)
+        // Múltiplo de 8: clima e, na sequência, o relógio (durações adaptativas)
         seq.push({ type: 'weather-enhanced' })
         seq.push({ type: 'clock' })
       } else if (played % 4 === 0) {
@@ -184,8 +184,8 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   const [phaseIdx, setPhaseIdx] = useState(0)
   // Sinaliza quando um ciclo completo de fases terminou (para avançar a fila)
   const [cycleCompleted, setCycleCompleted] = useState(0)
-  /** ID do informativo concluído na sequência atual (null quando não houve). */
-  const informativoCompletedRef = useRef<string | null>(null)
+  /** Chave da fase especial já concluída (evita registrar duas vezes). */
+  const specialCompletedRef = useRef('')
   const currentPhase = phaseSequence[phaseIdx]
   const isVideoPhase = currentPhase?.type === 'video'
 
@@ -197,7 +197,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     if (wasWaitingRef.current === isWaitingForEligible) return
     wasWaitingRef.current = isWaitingForEligible
     setPhaseIdx(0)
-    informativoCompletedRef.current = null
+    specialCompletedRef.current = ''
   }, [isWaitingForEligible])
 
   const PHOTO_DISPLAY_MS = 15000
@@ -221,17 +221,19 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
     proceed()
   }, [phaseSequence.length, phaseIdx, installAtBoundary])
 
-  // Reage ao fim de um ciclo: avança a fila de programação
+  /** Registra a conclusão de fixo/informativo no fim real da mídia. */
+  const markSpecialOnce = useCallback(function(phase: PhaseFixed | PhaseInformative) {
+    const key = cycleCompleted + ':' + phaseIdx + ':' + phase.item.id
+    if (specialCompletedRef.current === key) return
+    specialCompletedRef.current = key
+    markSpecialContentCompleted(phase.type, phase.item.id)
+  }, [cycleCompleted, phaseIdx, markSpecialContentCompleted])
+
+  // Reage ao fim de um ciclo: avança a fila de programação. Fixos e
+  // informativos já foram registrados no fim de suas próprias fases.
   useEffect(function() {
     if (cycleCompleted === 0) return
     setCycleBaseContents(contentShown)
-    // Só um informativo concluído reinicia seu próprio contador. Aplique
-    // no limite da sequência para não deslocar phaseIdx nem pular vinhetas.
-    if (informativoCompletedRef.current) {
-      const informativoId = informativoCompletedRef.current
-      informativoCompletedRef.current = null
-      resetInformativoCounter(informativoId)
-    }
     markCurrentCompleted()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycleCompleted])
@@ -253,8 +255,9 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
   }, [currentPhase, phaseIdx, cycleCompleted, markContentShown])
 
   const handleContentCompleted = useCallback(function(failed?: boolean) {
-    if (!failed && currentPhase?.type === 'informativo') {
-      informativoCompletedRef.current = currentPhase.item.id
+    // Fim real do vídeo: aqui sim o conteúdo entra no histórico da rodada.
+    if (!failed && (currentPhase?.type === 'informativo' || currentPhase?.type === 'fixed')) {
+      markSpecialOnce(currentPhase)
     }
     if (failed) {
       const failedId = currentPhase?.type === 'fixed' || currentPhase?.type === 'informativo'
@@ -263,7 +266,7 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
       if (failedId) reportMediaFailure(failedId)
     }
     advancePhase()
-  }, [advancePhase, currentPhase, reportMediaFailure])
+  }, [advancePhase, currentPhase, reportMediaFailure, markSpecialOnce])
 
   // Fila vazia: pula a fase de vídeo para não prender o ciclo.
   useEffect(function() {
@@ -342,17 +345,16 @@ export function TvDisplay({ deviceId }: { deviceName?: string; deviceId?: string
 
   useEffect(function() {
     if (currentPhaseDurationMs === null) return
-    // Informativo em imagem termina pelo timer. O reset ocorre só no limite
-    // da sequência, assim como no fim de um informativo em vídeo.
-    const isInformativo = currentPhase?.type === 'informativo'
+    // Fixo/informativo em imagem terminam pelo timer; a conclusão é gravada
+    // aqui, no fim efetivo da mídia — não no início nem no limite da sequência.
+    const special = currentPhase?.type === 'informativo' || currentPhase?.type === 'fixed'
+      ? currentPhase : null
     const timer = setTimeout(function() {
-      if (isInformativo && currentPhase?.type === 'informativo') {
-        informativoCompletedRef.current = currentPhase.item.id
-      }
+      if (special) markSpecialOnce(special)
       advancePhase()
     }, currentPhaseDurationMs)
     return function() { clearTimeout(timer) }
-  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx])
+  }, [currentPhaseDurationMs, currentPhase, advancePhase, phaseIdx, markSpecialOnce])
 
   // Sequência mudou: preserva o índice atual. Se ela encolheu a ponto de não
   // haver mais fase nele (ex.: galeria removida por falha de carregamento),

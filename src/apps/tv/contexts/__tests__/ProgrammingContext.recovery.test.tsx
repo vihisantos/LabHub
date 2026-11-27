@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COOLDOWN_RECHECK_MS, LIBRARY_REFRESH_MS, VIDEO_COOLDOWN_MS, nextEligiblePosition, ProgrammingProvider, useProgramming } from '../ProgrammingContext'
 import { buildLocalQueue, localId, optimizeCourseDistribution, type LocalCourse } from '../../services/localProgramming'
@@ -16,6 +16,7 @@ interface SavedState {
   completed_fixed_ids: string[]
   academic_since_last_informativo: number
   completed_informativo_ids?: string[]
+  next_informativo_id?: string | null
   last_video_played_at?: Record<string, number>
 }
 
@@ -356,16 +357,26 @@ describe('espera por cooldown: biblioteca viva e retomada automática', () => {
 })
 
 describe('informativos — cadência e rodada', () => {
+  const academicPaths = [
+    A, B,
+    'G:\\LabHub-TV\\Cursos\\Direito\\C.mp4',
+    'G:\\LabHub-TV\\Cursos\\Biomedicina\\D.mp4',
+    'G:\\LabHub-TV\\Cursos\\Direito\\E.mp4',
+    'G:\\LabHub-TV\\Cursos\\Biomedicina\\F.mp4',
+    'G:\\LabHub-TV\\Cursos\\Direito\\G.mp4',
+    'G:\\LabHub-TV\\Cursos\\Biomedicina\\H.mp4',
+  ]
+
   async function renderWithInformativos(overrides: Partial<SavedState> = {}) {
     rig.files = [
-      rawFile(A, 'A.mp4'), rawFile(B, 'B.mp4'),
+      ...academicPaths.map(function(path, index) { return rawFile(path, `A${index}.mp4`) }),
       infoFile(INFO1, 'aviso1.png'), infoFile(INFO2, 'aviso2.jpg'),
     ]
     rig.savedState = {
       ...emptyState(),
       academic_since_last_informativo: 7,
       library_version: 'v1',
-      pending_queue: [localId(A), localId(B)],
+      pending_queue: academicPaths.map(localId),
       ...overrides,
     }
     renderProvider()
@@ -379,13 +390,38 @@ describe('informativos — cadência e rodada', () => {
 
     act(() => api().resetInformativoCounter(first))
     expect(api().informativoDue).toBe(false)
-    expect(api().nextInformativo!.id).not.toBe(first)
+    expect(api().nextInformativo).toBeNull()
     expect(rig.savedState?.completed_informativo_ids).toContain(first)
 
+    // Retoma com a cadência vencida: escolhe o próximo da rodada, sem repetir.
+    rig.savedState = {
+      ...(rig.savedState as SavedState),
+      academic_since_last_informativo: 7,
+      pending_queue: academicPaths.map(localId),
+      position: 0,
+    }
+    cleanup()
+    latest = undefined
+    renderProvider()
+    await waitFor(() => expect(api().ready).toBe(true))
     const second = api().nextInformativo!.id
-    act(() => api().resetInformativoCounter(second))
-    expect(api().nextInformativo).not.toBeNull()
-    expect(rig.savedState?.completed_informativo_ids).toEqual([])
+    expect(second).not.toBe(first)
+
+    // Rodada esgotada: só abre a seguinte quando uma nova cadência vence.
+    rig.savedState = {
+      ...(rig.savedState as SavedState),
+      academic_since_last_informativo: 7,
+      completed_informativo_ids: [first, second],
+      next_informativo_id: null, // limite da sequência já atingido
+      pending_queue: academicPaths.map(localId),
+      position: 0,
+    }
+    cleanup()
+    latest = undefined
+    renderProvider()
+    await waitFor(() => expect(api().ready).toBe(true))
+    expect(api().nextInformativo!.id).toBe(first)
+    await waitFor(() => expect(rig.savedState?.completed_informativo_ids).toEqual([]))
   })
 
   it('retoma a rodada persistida e nunca escolhe mídia que falhou', async () => {
@@ -394,7 +430,10 @@ describe('informativos — cadência e rodada', () => {
       error_contents: [localId(INFO2)],
     })
     expect(api().informativoDue).toBe(true)
-    expect(api().nextInformativo).toBeNull()
+    // O único arquivo válido já foi concluído; o falho nunca é escolhido e a
+    // rodada recomeça em ordem determinística (sem repetição aleatória).
+    expect(api().nextInformativo?.id).toBe(localId(INFO1))
+    expect(api().nextInformativo?.id).not.toBe(localId(INFO2))
   })
 
   it('exibe o aviso restante quando apenas um falhou', async () => {

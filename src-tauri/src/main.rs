@@ -159,6 +159,17 @@ pub struct ProgrammingState {
     pub completed_informativo_ids: Vec<String>,
     #[serde(default)]
     pub last_video_played_at: std::collections::HashMap<String, u64>,
+    /// Rodízio determinístico: ordem e posição persistidas por categoria.
+    #[serde(default)]
+    pub fixed_round_ids: Vec<String>,
+    #[serde(default)]
+    pub fixed_round_cursor: usize,
+    #[serde(default)]
+    pub informativo_round_ids: Vec<String>,
+    #[serde(default)]
+    pub informativo_round_cursor: usize,
+    #[serde(default)]
+    pub next_informativo_id: Option<String>,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -600,6 +611,46 @@ async fn programming_state_reset() -> Result<(), String> {
     Ok(())
 }
 
+/// Uma linha por evento: quebras injected não podem falsificar entradas do log.
+fn sanitize_log_line(line: &str) -> String {
+    line.replace('\r', " ").replace('\n', " ")
+}
+
+/// Log local do rodízio Fixos/Informativos (%APPDATA%/LabHub TV/rotation.log).
+#[tauri::command]
+async fn tv_rotation_log(line: String) -> Result<(), String> {
+    use std::io::Write as _;
+
+    let path = get_app_data_dir()
+        .ok_or("Não foi possível determinar pasta de dados do app")?
+        .join("LabHub TV")
+        .join("rotation.log");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Falha ao criar pasta de log: {}", e))?;
+    }
+
+    // Limite fixo: o log de uma TV ligada 24/7 não pode crescer sem parar.
+    if let Ok(meta) = fs::metadata(&path) {
+        if meta.len() > 256 * 1024 {
+            if let Ok(content) = fs::read_to_string(&path) {
+                let lines: Vec<&str> = content.lines().collect();
+                let recent = lines
+                    .iter()
+                    .skip(lines.len().saturating_sub(500))
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let _ = fs::write(&path, recent);
+            }
+        }
+    }
+
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(&path)
+        .map_err(|e| format!("Falha ao abrir log de rodízio: {}", e))?;
+    writeln!(file, "{}", sanitize_log_line(&line))
+        .map_err(|e| format!("Falha ao gravar log de rodízio: {}", e))
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuração do dispositivo — persistência nativa (substitui localStorage)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -799,6 +850,7 @@ fn main() {
             programming_state_get,
             programming_state_set,
             programming_state_reset,
+            tv_rotation_log,
             device_config_get,
             device_config_set,
             device_config_remove,
@@ -824,6 +876,14 @@ mod persistence_tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("labhub-fase5-{}-{}", name, uuid::Uuid::new_v4().simple()))
+    }
+
+    #[test]
+    fn extensoes_suportadas_sao_case_insensitive() {
+        assert_eq!(get_file_type("banner.MP4"), Some("video"));
+        assert_eq!(get_file_type("aviso.PNG"), Some("image"));
+        assert_eq!(get_file_type("rascunho.m4v"), None);
+        assert_eq!(get_file_type("apresentacao.pdf"), None);
     }
 
     #[test]
@@ -858,6 +918,29 @@ mod persistence_tests {
         assert!(!path.exists());
         assert!(fs::read_dir(&dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn rodizio_persistido_e_compativel_com_estado_antigo() {
+        let antigo = br#"{"cycle":1,"position":0,"academic_completed":0,"academic_since_last_fixed":0,"completed_ids":[],"pending_queue":[],"next_fixed_id":null,"library_version":"v1","error_contents":[],"completed_fixed_ids":[],"academic_since_last_informativo":0}"#;
+        let state = parse_programming_state(antigo).expect("estado antigo deve carregar");
+        assert!(state.fixed_round_ids.is_empty());
+        assert_eq!(state.fixed_round_cursor, 0);
+        assert!(state.informativo_round_ids.is_empty());
+        assert_eq!(state.informativo_round_cursor, 0);
+
+        let atual = br#"{"cycle":1,"position":0,"academic_completed":0,"academic_since_last_fixed":0,"completed_ids":[],"pending_queue":[],"next_fixed_id":"f1","library_version":"v1","error_contents":[],"completed_fixed_ids":["f1"],"academic_since_last_informativo":0,"completed_informativo_ids":[],"fixed_round_ids":["f1","f2"],"fixed_round_cursor":1,"informativo_round_ids":["i1"],"informativo_round_cursor":0,"next_informativo_id":"i1"}"#;
+        let state = parse_programming_state(atual).expect("estado com rodizio deve carregar");
+        assert_eq!(state.fixed_round_ids, vec!["f1", "f2"]);
+        assert_eq!(state.fixed_round_cursor, 1);
+        assert_eq!(state.informativo_round_ids, vec!["i1"]);
+        assert_eq!(state.next_informativo_id.as_deref(), Some("i1"));
+    }
+
+    #[test]
+    fn log_de_rodizio_nao_aceita_quebras_de_linha_injetadas() {
+        assert_eq!(sanitize_log_line("a\nb\r\nc"), "a b  c");
+        assert_eq!(sanitize_log_line("{\"reason\":\"ok\"}"), "{\"reason\":\"ok\"}");
     }
 
     #[test]
